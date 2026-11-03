@@ -59,6 +59,7 @@ import {
 	mergeCopilotApiHeaders,
 	parseGitHubCopilotApiKey,
 } from "../wire/github-copilot";
+import { NEBIUS_API_BASE_URL } from "../wire/nebius";
 import {
 	SINGULARITYAPI_DEV_API_BASE_URL,
 	SINGULARITYAPI_TECH_API_BASE_URL,
@@ -800,6 +801,8 @@ type OpenAICompatibleModelManagerBuilderOptions<TApi extends Api> = {
 	defaultBaseUrl: string;
 	config?: SimpleProviderConfig;
 	headers?: SimpleProviderDiscoveryHeaders;
+	/** Query parameters appended to the `/models` probe. */
+	query?: Record<string, string>;
 	dynamicModelsAuthoritative?: true;
 	requireApiKey?: true;
 	dropCachedModelIdsOnStaticMismatch?: readonly string[];
@@ -838,6 +841,7 @@ function createOpenAICompatibleModelManagerOptions<TApi extends Api>(
 						provider: options.providerId,
 						baseUrl,
 						apiKey,
+						...(options.query && { query: options.query }),
 						...(options.headers && { headers: resolveSimpleProviderHeaders(options.headers) }),
 						...(filterModel && {
 							filterModel: (entry, model) => filterModel(entry, model, references),
@@ -7547,6 +7551,8 @@ const MODELS_DEV_PROVIDER_DESCRIPTORS_CORE: readonly ModelsDevProviderDescriptor
 	}),
 	// --- Together ---
 	openAiCompletionsDescriptor("togetherai", "together", "https://api.together.xyz/v1"),
+	// --- Nebius Token Factory ---
+	openAiCompletionsDescriptor("nebius", "nebius", NEBIUS_API_BASE_URL),
 	// --- CoreWeave Serverless Inference ---
 	openAiCompletionsDescriptor("wandb", "coreweave", "https://api.inference.wandb.ai/v1", {
 		transformModel: model => {
@@ -8238,6 +8244,85 @@ export function singularityApiTechModelManagerOptions(
 	config?: SingularityApiModelManagerConfig,
 ): ModelManagerOptions<Api> {
 	return singularityApiModelManagerOptions("singularityapi-tech", SINGULARITYAPI_TECH_API_BASE_URL, config);
+}
+
+// ---------------------------------------------------------------------------
+// Nebius Token Factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Reasoning capability for one verbose roster row.
+ *
+ * The roster's `supported_features` is the deployment's own capability surface.
+ * A dedicated deployment appears in no public catalog, so the roster is the
+ * only source that describes what it can do — but a row that omits the field
+ * says nothing, and must not revoke a capability another source established.
+ */
+function nebiusReasoning(entry: OpenAICompatibleModelRecord, inherited: boolean): boolean {
+	const features = entry.supported_features;
+	if (!Array.isArray(features)) return inherited;
+	return features.some(feature => feature === "reasoning");
+}
+
+/**
+ * The verbose roster supplies deployment limits, per-token prices and
+ * `<input>-><output>` modalities; non-text outputs are not chat models.
+ */
+export function nebiusModelManagerOptions(config?: ModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	return {
+		...createOpenAICompatibleModelManagerOptions({
+			api: "openai-completions",
+			providerId: "nebius",
+			defaultBaseUrl: NEBIUS_API_BASE_URL,
+			// The roster includes the project's dedicated deployments, so the cache follows the key.
+			cacheProviderId: resolveModelCacheProviderId("nebius", {
+				apiKey: config?.apiKey,
+				baseUrl: config?.baseUrl,
+			}),
+			config,
+			query: { verbose: "true" },
+			dynamicModelsAuthoritative: true,
+			requireApiKey: true,
+			// Embedding SKUs ride the same roster, and a row that omits its
+			// modality must still be excluded; the list is rule-owned
+			// (`runtime/behavior.kdl` exclude-models).
+			filterModel: (_entry, model) => !isExcludedModel("nebius", model.id),
+			mapModel: (entry, defaults, reference) => {
+				const modality = isRecord(entry.architecture) ? entry.architecture.modality : undefined;
+				const [inputs, output] = typeof modality === "string" ? modality.split("->") : [];
+				if (output !== undefined && output.trim() !== "text") return null;
+				const model = mapWithBundledReference(entry, defaults, reference);
+				const hasExplicitFeatures = Array.isArray(entry.supported_features);
+				const supportsReasoning = nebiusReasoning(entry, model.reasoning);
+				return {
+					...model,
+					reasoning: supportsReasoning,
+					// A present `supported_features` array is the roster's verdict. If it omits
+					// `reasoning`, clear the inherited dial and stop KDL's
+					// `thinking-upgrade-neutral` from re-promoting the model. Absence stays neutral.
+					...(hasExplicitFeatures &&
+						!supportsReasoning && {
+							thinking: undefined,
+							compat: { ...model.compat, trustExplicitThinkingOnly: true },
+						}),
+					// Modalities are `+`-joined (`text+image->text`). A row without one keeps the
+					// bundled capability; an explicit text-only row narrows it.
+					input:
+						output !== undefined
+							? toInputCapabilities(inputs.split("+").map(segment => segment.trim()))
+							: model.input,
+					cost: isRecord(entry.pricing) ? perTokenPricingCost(entry.pricing) : model.cost,
+					contextWindow: toPositiveNumber(entry.context_length, model.contextWindow),
+				};
+			},
+		}),
+		// The verbose modality is the deployment's whole truth for image input.
+		dynamicInputAuthoritative: true,
+		// `supported_features` is the deployment's own capability surface, and a
+		// dedicated deployment appears in no public catalog, so the roster is
+		// the only source that describes what it can do.
+		dynamicReasoningAuthoritative: true,
+	};
 }
 
 // ---------------------------------------------------------------------------

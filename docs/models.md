@@ -517,6 +517,11 @@ prices; rich provider discovery such as LiteLLM can supply its own prices.
 
 ## Runtime discovery integration
 
+Providers whose roster includes credential-scoped rows must derive capabilities from that roster
+rather than a public catalog; Nebius Token Factory is the worked example, covering dedicated
+deployments and the lineage rules that give them an effort ladder
+([nebius-dedicated-deployments.md](./nebius-dedicated-deployments.md)).
+
 ### Implicit Ollama discovery
 
 If `ollama` is not explicitly configured, registry adds an implicit discoverable provider:
