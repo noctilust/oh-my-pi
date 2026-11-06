@@ -1,9 +1,9 @@
-# Nebius dedicated deployments: reasoning metadata and effort ladders
+# Nebius dedicated deployments: capabilities and effort ladders
 
-How the `nebius` provider derives reasoning capability and thinking effort tiers for
-models that no public catalog describes. Written for future agents editing this code:
-read this before touching `nebiusReasoning()`, `classes/minimax.kdl`, or any Nebius
-model rule.
+How the `nebius` provider derives reasoning, native-tool support, and thinking effort
+tiers for models that no public catalog describes. Written for future agents editing
+this code: read this before touching `nebiusReasoning()`, the Nebius `mapModel`,
+`classes/minimax.kdl`, or any Nebius model rule.
 
 ## The problem in one paragraph
 
@@ -23,11 +23,13 @@ correctly.
 
 1. **A dedicated deployment must never depend on a public-catalog row.** Everything
    it needs comes from the live roster (`/v1/models?verbose=true`) or from KDL.
-2. **An absent capability field must not revoke an inherited capability.** A roster
-   row that omits `supported_features` says nothing; it does not say "no reasoning".
+2. **A missing, null, or empty capability field must not revoke inherited
+   capabilities.** Such a row has no opinion about reasoning or native tools.
    Where no bundled row exists to inherit from and a reviewed family/residue
    selector matches, that ladder repairs the capability through
    `thinking-upgrade-neutral`; an unreviewed generation gets no invented ladder.
+   Historical endpoints sometimes returned `[]` for no opinion, so an empty list
+   is neutral for reasoning as well.
 3. **Policy selectors must be lineage-based, never deployment-id-based.** A future
    deployment carries a new project name and a new random suffix.
 4. **`packages/catalog/src/models.json` is generated.** Never hand-edit it; the
@@ -60,20 +62,18 @@ reviewed ladder when the roster says nothing.
 
 ### Why the roster can be authoritative
 
-Audited against the live endpoint and both catalogs (2026-10-29 snapshot; counts
-drift as deployments are added and removed):
+A fresh raw `GET /v1/models?verbose=true` audit on 2026-11-06 returned 33 rows. Counts
+drift as deployments are added and removed; only public model ids are recorded here.
 
 | Check | Result |
 | --- | --- |
-| Live roster vs shared catalog (`reasoning`) | 24 agree, **0 disagree** |
-| Live roster vs bundled catalog (25 rows) | **0 rows would flip** |
-| `supported_features` presence | present on 41/44 rows; absent on 3 after embedding filtering |
+| Populated list without `"tools"` | Only `openbmb/MiniCPM-V-4_5`: `["json_mode", "structured_outputs"]` |
+| Missing `supported_features` | `Qwen/Qwen3-Embedding-8B` (excluded as embedding) and `deepseek-ai/DeepSeek-V4.1-Flash` (inherits bundled reasoning) |
+| Empty list | No rows in this snapshot; historical responses did contain `[]`, so neutrality remains required |
 
-The 3 absent rows are `Qwen/Qwen3-Embedding-8B` (embedding, filtered out),
-`deepseek-ai/DeepSeek-V4.1-Flash` (bundled as `reasoning: true`, so absence inherits
-`true`), and one dedicated `DeepSeek-V4.1-Flash-Coding` deployment (no bundled row, so
-the DeepSeek lineage rule supplies the ladder). That is exactly why absence must mean
-"no opinion" rather than "false".
+The explicit MiniCPM feature list selects in-band tool calling. The absent-field
+DeepSeek row retains inherited capabilities, including reasoning. No dedicated model
+id is needed to exercise this logic: `mapModel` follows the row's fields, not its id.
 
 ## Mechanism 1 — derive capability in the mapper
 
@@ -82,19 +82,26 @@ the DeepSeek lineage rule supplies the ladder). That is exactly why absence must
 ```ts
 function nebiusReasoning(entry: OpenAICompatibleModelRecord, inherited: boolean): boolean {
     const features = entry.supported_features;
-    if (!Array.isArray(features)) return inherited;   // absent → keep inherited
+    if (!Array.isArray(features) || features.length === 0) return inherited;
     return features.some(feature => feature === "reasoning");
 }
 ```
 
-Wired into the Nebius `mapModel`. This is deployment-agnostic: it keys off the roster
-payload, not the id, so any future model on any future dedicated endpoint gets the
-right flag for free.
+Wired into the Nebius `mapModel`, which also derives `explicitFeatures` from non-empty
+arrays only. If that populated list omits `"tools"`, the mapper sets `supportsTools:
+false`; if it includes `"tools"`, it does not force a positive value. Missing, null,
+and empty lists leave both reasoning and tool metadata neutral. The logic is
+deployment-agnostic: it follows roster fields, not model ids.
 
-A present `supported_features` array that omits `reasoning` is an explicit negative,
-not a missing opinion. In that case the mapper also clears the inherited `thinking`
-dial and sets `compat.trustExplicitThinkingOnly`, so a reviewed lineage ladder cannot
-re-promote the model during `buildModel`. Only an absent field is neutral.
+A populated list that omits `reasoning` is an explicit negative, not a missing opinion.
+The mapper then clears the inherited `thinking` dial and sets
+`compat.trustExplicitThinkingOnly`, preventing a reviewed lineage ladder from
+re-promoting the model during `buildModel`.
+
+For native tools, only explicit `false` is a verdict. `undefined` keeps automatic
+selection intact; `false` makes `tools.format: auto` select the in-band dialect chosen
+by `resolveDialect` in `packages/coding-agent/src/sdk.ts` (GLM when the model has no
+known family). This changes request dispatch, not a claim about endpoint compatibility.
 
 Do **not** generalize this into a shared helper for other providers without auditing
 their `supported_features` semantics. Only CoralBricks, Synthetic, and Nebius declare
@@ -277,8 +284,26 @@ nebius/MiniMaxAI/MiniMax-M3.1-Flash                                      True  [
 | Dedicated row shows `reasoning: false` | mapper lost the `supported_features` read, or `dynamicReasoningAuthoritative` was removed |
 | Dedicated row omits `supported_features` and still shows `reasoning: false` | its lineage rule lacks `thinking-upgrade-neutral #true`, it classifies as `unknown`, or it is an unreviewed generation with no matching family/residue selector |
 | A row whose `supported_features` omits `reasoning` still shows a ladder | the mapper did not clear `thinking` and set `trustExplicitThinkingOnly`, or a KDL rule overrode that flag |
+| An empty `supported_features` list revokes reasoning or native tools | the mapper treated `[]` as a verdict; only populated lists may do so |
+| A populated list without `"tools"` still dispatches native tools | the mapper no longer sets `supportsTools: false`, or a configured model override reverses it |
 | `AmbiguousOverlapError` at resolve time | two equally-ranked Nebius rules contest one axis; add `priority=` or narrow a selector |
 | `compat-parity` diff on `nebius/MiniMaxAI/MiniMax-M3` | the `family "m3"` ladder leaked onto M3; the `models` pin is missing or its glob is wrong |
 | A new model shows a ladder but no `max` | it matched only the generic `fallbackEfforts` ladder — the class rule did not apply |
 | A new generation shows no ladder | intended until a reviewed family/residue selector exists; measure the endpoint, then add the selector |
 | An embedding SKU appears as a chat model | the Nebius `filterModel` no longer applies the `runtime/behavior.kdl` exclusion |
+
+Unexpected in-band calls are the intended result of a populated list without `"tools"`;
+they do not by themselves prove the endpoint lacks native support. Verify the actual
+endpoint and correct its roster. If the roster is wrong, `modelOverrides` can restore
+native dispatch for that one model (see `docs/models.md`):
+
+```yaml
+providers:
+  nebius:
+    modelOverrides:
+      "openbmb/MiniCPM-V-4_5":
+        supportsTools: true
+```
+
+Use this override only after verifying native support; it takes precedence over
+discovery and can re-enable native calls on an endpoint that cannot process them.

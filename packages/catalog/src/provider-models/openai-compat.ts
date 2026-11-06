@@ -8253,14 +8253,13 @@ export function singularityApiTechModelManagerOptions(
 /**
  * Reasoning capability for one verbose roster row.
  *
- * The roster's `supported_features` is the deployment's own capability surface.
- * A dedicated deployment appears in no public catalog, so the roster is the
- * only source that describes what it can do — but a row that omits the field
- * says nothing, and must not revoke a capability another source established.
+ * A non-empty `supported_features` list is the deployment's explicit capability
+ * verdict. Missing, null, and empty lists are neutral: older endpoints serialized
+ * no opinion as [], which must not revoke a capability another source established.
  */
 function nebiusReasoning(entry: OpenAICompatibleModelRecord, inherited: boolean): boolean {
 	const features = entry.supported_features;
-	if (!Array.isArray(features)) return inherited;
+	if (!Array.isArray(features) || features.length === 0) return inherited;
 	return features.some(feature => feature === "reasoning");
 }
 
@@ -8292,15 +8291,21 @@ export function nebiusModelManagerOptions(config?: ModelManagerConfig): ModelMan
 				const [inputs, output] = typeof modality === "string" ? modality.split("->") : [];
 				if (output !== undefined && output.trim() !== "text") return null;
 				const model = mapWithBundledReference(entry, defaults, reference);
-				const hasExplicitFeatures = Array.isArray(entry.supported_features);
+				const explicitFeatures =
+					Array.isArray(entry.supported_features) && entry.supported_features.length > 0
+						? entry.supported_features
+						: undefined;
 				const supportsReasoning = nebiusReasoning(entry, model.reasoning);
 				return {
 					...model,
 					reasoning: supportsReasoning,
-					// A present `supported_features` array is the roster's verdict. If it omits
-					// `reasoning`, clear the inherited dial and stop KDL's
-					// `thinking-upgrade-neutral` from re-promoting the model. Absence stays neutral.
-					...(hasExplicitFeatures &&
+					// A populated list that omits tools explicitly disables native tool dispatch.
+					// undefined leaves automatic selection intact, so never force a positive truth
+					// or revoke capabilities for missing/null/empty feature lists.
+					...(explicitFeatures && !explicitFeatures.includes("tools") && { supportsTools: false }),
+					// If the same verdict omits `reasoning`, clear the inherited dial and stop KDL's
+					// `thinking-upgrade-neutral` from re-promoting the model.
+					...(explicitFeatures &&
 						!supportsReasoning && {
 							thinking: undefined,
 							compat: { ...model.compat, trustExplicitThinkingOnly: true },

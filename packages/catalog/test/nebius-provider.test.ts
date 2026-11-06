@@ -298,8 +298,30 @@ describe("Nebius Token Factory reasoning capability", () => {
 		});
 		const models = await options.fetchDynamicModels?.();
 		// The bundled reference reports this model as reasoning-capable, and a
-		// roster that says nothing must not revoke that.
+		// roster that says nothing must not revoke either capability.
 		expect(models?.[0]?.reasoning).toBe(true);
+		expect(models?.[0]?.supportsTools).not.toBe(false);
+	});
+
+	test("keeps inherited reasoning and tool capabilities for an empty feature list", async () => {
+		const options = nebiusModelManagerOptions({
+			apiKey: "nebius-test-key",
+			fetch: async () =>
+				Response.json({
+					data: [
+						{
+							id: "deepseek-ai/DeepSeek-V4.1-Flash",
+							context_length: 1048000,
+							architecture: { modality: "text->text" },
+							supported_features: [],
+						},
+					],
+				}),
+		});
+		const models = await options.fetchDynamicModels?.();
+		// Historical endpoints used [] for no verdict, not explicit refusal.
+		expect(models?.[0]?.reasoning).toBe(true);
+		expect(models?.[0]?.supportsTools).not.toBe(false);
 	});
 
 	test("promotes a dedicated lineage row that omits supported_features", async () => {
@@ -323,6 +345,32 @@ describe("Nebius Token Factory reasoning capability", () => {
 		expect(model.reasoning).toBe(true);
 		expect(getSupportedEfforts(model)).toEqual([Effort.Low, Effort.High, Effort.Max]);
 		expect(model.compat.reasoningDisableMode).toBe("none-effort");
+	});
+});
+
+describe("Nebius Token Factory native tool capability", () => {
+	test("disables native tools when a populated feature list omits tools", async () => {
+		await using temp = await TempDir.create("@nebius-tools-");
+		const options = {
+			...nebiusModelManagerOptions({
+				apiKey: "nebius-test-key",
+				fetch: async () =>
+					Response.json({
+						data: [
+							{
+								// Observed public MiniCPM row: json_mode + structured_outputs, no tools.
+								id: "openbmb/MiniCPM-V-4_5",
+								architecture: { modality: "text+image->text" },
+								supported_features: ["json_mode", "structured_outputs"],
+							},
+						],
+					}),
+			}),
+			cacheDbPath: temp.join("models.db"),
+		};
+		const result = await resolveProviderModels(options, "online");
+		// Resolve through a fresh cache so a KDL/repository default cannot hide the mapper verdict.
+		expect(result.models.find(model => model.id === "openbmb/MiniCPM-V-4_5")?.supportsTools).toBe(false);
 	});
 });
 
