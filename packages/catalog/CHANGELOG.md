@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking, and embedding SKUs excluded from chat models
+- Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking on M3.1, and embedding SKUs excluded from chat models
 
 ## [18.18.2] - 2026-11-08
 

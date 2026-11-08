@@ -44,6 +44,18 @@ provider "nebius" {
 		thinking-upgrade-neutral #true
 		reasoning-disable-mode "none-effort"
 	}
+	// residue: taxonomy has no Hermes class. Measured 2026-11-08: the deployment
+	// answers a vLLM `literal_error` naming `none`, `low`, `medium` and `high`
+	// for every other tier, so the generic fallback ladder dispatched rejected
+	// efforts (`minimal`, `xhigh`, `max` are 400s) and `lowest-effort` tried to
+	// disable thinking with `minimal`. `none` is accepted and returns no
+	// reasoning, so it is the off switch here too. The lineage glob also covers
+	// a future dedicated deployment spelling.
+	models "*hermes-4-405b*" {
+		thinking-efforts "low" "medium" "high"
+		thinking-upgrade-neutral #true
+		reasoning-disable-mode "none-effort"
+	}
 	class "kimi" {
 		family "k3" {
 			thinking-efforts "low" "medium" "high" "max"

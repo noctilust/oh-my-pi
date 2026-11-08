@@ -59,7 +59,7 @@ import {
 	mergeCopilotApiHeaders,
 	parseGitHubCopilotApiKey,
 } from "../wire/github-copilot";
-import { NEBIUS_API_BASE_URL } from "../wire/nebius";
+import { NEBIUS_API_BASE_URL, normalizeNebiusBaseUrl } from "../wire/nebius";
 import {
 	SINGULARITYAPI_DEV_API_BASE_URL,
 	SINGULARITYAPI_TECH_API_BASE_URL,
@@ -8290,8 +8290,15 @@ function nebiusReasoning(entry: OpenAICompatibleModelRecord, inherited: boolean)
 /**
  * The verbose roster supplies deployment limits, per-token prices and
  * `<input>-><output>` modalities; non-text outputs are not chat models.
+ *
+ * One canonical base URL feeds the `/models` probe, the base URL stamped on
+ * every discovered deployment, and the cache namespace (`wire/nebius.ts`):
+ * discovery's own single-slash trim would otherwise send a configured
+ * `…/v1//` override to a `//models` path while the cache key claimed the
+ * canonical endpoint.
  */
 export function nebiusModelManagerOptions(config?: ModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	const baseUrl = normalizeNebiusBaseUrl(config?.baseUrl);
 	return {
 		...createOpenAICompatibleModelManagerOptions({
 			api: "openai-completions",
@@ -8300,9 +8307,9 @@ export function nebiusModelManagerOptions(config?: ModelManagerConfig): ModelMan
 			// The roster includes the project's dedicated deployments, so the cache follows the key.
 			cacheProviderId: resolveModelCacheProviderId("nebius", {
 				apiKey: config?.apiKey,
-				baseUrl: config?.baseUrl,
+				baseUrl,
 			}),
-			config,
+			config: { ...config, baseUrl },
 			query: { verbose: "true" },
 			dynamicModelsAuthoritative: true,
 			requireApiKey: true,

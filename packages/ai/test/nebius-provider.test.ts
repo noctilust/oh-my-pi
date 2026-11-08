@@ -38,12 +38,14 @@ async function reasoningRequest(id: string, options: OpenAICompletionsOptions): 
 }
 
 describe("Nebius Token Factory reasoning requests", () => {
-	test.each(["deepseek-ai/DeepSeek-V4-Flash-0731", "nvidia/Nemotron-3_5-Lightning", "moonshotai/Kimi-K3"])(
-		"disables %s with none rather than its lowest enabled effort",
-		async id => {
-			expect(await reasoningRequest(id, { disableReasoning: true })).toMatchObject({ reasoning_effort: "none" });
-		},
-	);
+	test.each([
+		"deepseek-ai/DeepSeek-V4-Flash-0731",
+		"nvidia/Nemotron-3_5-Lightning",
+		"moonshotai/Kimi-K3",
+		"NousResearch/Hermes-4-405B",
+	])("disables %s with none rather than its lowest enabled effort", async id => {
+		expect(await reasoningRequest(id, { disableReasoning: true })).toMatchObject({ reasoning_effort: "none" });
+	});
 
 	test("preserves Kimi K3's hosted medium effort instead of remapping it to high", async () => {
 		expect(await reasoningRequest("moonshotai/Kimi-K3", { reasoning: Effort.Medium })).toMatchObject({

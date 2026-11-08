@@ -141,7 +141,7 @@ on "nebius" {
 bundled reference: the cascade promotes the row to reasoning-capable when an
 identity-scoped rule owns a reviewed ladder. The same opt-in is present on every
 reviewed Nebius ladder: MiniMax (`family "m3"`), DeepSeek (`revision ">=4"`), Qwen 3.8,
-GLM, Kimi K3, Nemotron, `muse-spark-open`, and `beam`. The provenance and model
+GLM, Kimi K3, Nemotron, Hermes-4-405B, `muse-spark-open`, and `beam`. The provenance and model
 policy still live in KDL; the mapper only reads the wire.
 
 ### Why the rule stops at the reviewed families
@@ -161,6 +161,28 @@ not classify into `m2` or `m3` matches **no Nebius rule**: it gets no ladder and
 added. That is deliberate — an unreviewed generation must not advertise a ladder the
 endpoint has not been shown to accept. The `family "m2"` and `family "m3"` blocks are
 siblings, not a class-wide default with overrides.
+
+### Worked example: the generic fallback ladder is not a vocabulary
+
+A row the roster reports as reasoning-capable still resolves with the API-generic
+`fallbackEfforts` ladder while no Nebius rule matches it — for `openai-completions`
+with `supportsReasoningEffort` that is `minimal…xhigh`. That ladder is the engine's
+API default, not a measured Nebius vocabulary, and the endpoint validates
+`reasoning_effort` per deployment.
+
+`NousResearch/Hermes-4-405B` (classifies as `unknown`; the taxonomy declares no Hermes
+class) is the worked example. Measured 2026-11-08:
+
+| `reasoning_effort` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max` | `none` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| response | 400 | 200 | 200 | 200 | 400 | 400 | 200 |
+
+The 400s are vLLM `literal_error`s naming the accepted set (`none`, `low`, `medium`,
+`high`). Before its residue rule, the fallback ladder offered `minimal` and `xhigh`
+and `lowest-effort` disabled thinking with `minimal` — every one of them a rejected
+request. `models "*hermes-4-405b*"` now carries the measured `low`/`medium`/`high`
+ladder with `none-effort`; copy that pattern for the next such row: probe every tier,
+then pin the accepted subset.
 
 ### Why the M3 pin exists
 
@@ -289,6 +311,7 @@ nebius/MiniMaxAI/MiniMax-M3.1-Flash                                      True  [
 | `AmbiguousOverlapError` at resolve time | two equally-ranked Nebius rules contest one axis; add `priority=` or narrow a selector |
 | `compat-parity` diff on `nebius/MiniMaxAI/MiniMax-M3` | the `family "m3"` ladder leaked onto M3; the `models` pin is missing or its glob is wrong |
 | A new model shows a ladder but no `max` | it matched only the generic `fallbackEfforts` ladder — the class rule did not apply |
+| An offered tier answers 400 with a vLLM `literal_error` naming the accepted set | the row resolved to the generic `fallbackEfforts` ladder; probe the tiers and add a measured residue rule (`*hermes-4-405b*` is the worked example) |
 | A new generation shows no ladder | intended until a reviewed family/residue selector exists; measure the endpoint, then add the selector |
 | An embedding SKU appears as a chat model | the Nebius `filterModel` no longer applies the `runtime/behavior.kdl` exclusion |
 

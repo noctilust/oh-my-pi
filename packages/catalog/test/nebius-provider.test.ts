@@ -170,14 +170,35 @@ describe("Nebius Token Factory effort vocabularies", () => {
 		["dedicated/sa-example/DeepSeek-V4.1-Flash-Coding-Optimized-abc123", [Effort.Low, Effort.High, Effort.Max]],
 		["meta-models/muse-spark-open", [Effort.Low, Effort.Medium, Effort.High, Effort.XHigh]],
 		["reflection/beam", [Effort.Minimal, Effort.Low, Effort.Medium, Effort.High, Effort.XHigh, Effort.Max]],
+		["NousResearch/Hermes-4-405B", [Effort.Low, Effort.Medium, Effort.High]],
 	])("offers only the reviewed vocabulary for %s", (id, efforts) => {
 		expect(getSupportedEfforts(buildModel(staticModel(id)))).toEqual(efforts);
 	});
 
 	test("turns thinking off with none on the serverless models", () => {
-		for (const id of ["deepseek-ai/DeepSeek-V4-Flash-0731", "moonshotai/Kimi-K3", "Qwen/Qwen3.8-27B"]) {
+		for (const id of [
+			"deepseek-ai/DeepSeek-V4-Flash-0731",
+			"moonshotai/Kimi-K3",
+			"Qwen/Qwen3.8-27B",
+			"NousResearch/Hermes-4-405B",
+		]) {
 			expect(buildModel(staticModel(id)).compat.reasoningDisableMode).toBe("none-effort");
 		}
+	});
+
+	test("probes a configured endpoint override without a doubled slash", async () => {
+		let requested = "";
+		const options = nebiusModelManagerOptions({
+			apiKey: "nebius-test-key",
+			baseUrl: "https://tokenfactory.example/v1//",
+			fetch: async input => {
+				requested = String(input);
+				return Response.json({ data: [{ id: "proxied-model", architecture: { modality: "text->text" } }] });
+			},
+		});
+		const models = await options.fetchDynamicModels?.();
+		expect(requested).toBe("https://tokenfactory.example/v1/models?verbose=true");
+		expect(models?.[0]?.baseUrl).toBe("https://tokenfactory.example/v1");
 	});
 });
 
