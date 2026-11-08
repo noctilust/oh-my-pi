@@ -6,6 +6,13 @@
 
 - Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking, and embedding SKUs excluded from chat models
 
+## [18.18.2] - 2026-11-08
+
+### Fixed
+
+- Fixed model catalog pricing and output-limit metadata for Mistral alias IDs, including the Mistral Vibe CLI default model, by applying the metadata of their aliased models.
+- Updated xAI Grok 4.20 beta and multi-agent aliases to use the current Grok 4.20-0309 pricing, including the higher rates for prompts exceeding 200K tokens.
+
 ## [18.18.1] - 2026-11-08
 
 ### Fixed
