@@ -92,7 +92,7 @@ const DISCOVERY_ONLY_PROVIDERS = new Set(["ollama", "vllm", "lm-studio", "litell
  * authoritative per credential (mirrors the GitLab Duo fallback-only policy
  * below).
  */
-const CREDENTIAL_SCOPED_PROVIDERS = new Set(["devin", "nebius", "sambanova"]);
+const CREDENTIAL_SCOPED_PROVIDERS = new Set(["devin", "nebius", "sambanova", "otari"]);
 /**
  * Providers whose authored seed is the complete documented fallback
  * catalog: their previous-snapshot rows are never resurrected, so an id
