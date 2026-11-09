@@ -5,6 +5,11 @@
 ### Added
 
 - Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking on M3.1, and embedding SKUs excluded from chat models
+## [18.18.3] - 2026-11-09
+
+### Changed
+
+- Added a `balanced` delegation bias between `eager` and `restrained`; models without a `delegation-bias` rule now resolve to it instead of `eager`
 
 ## [18.18.2] - 2026-11-08
 
