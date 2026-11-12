@@ -6,6 +6,16 @@
 
 - Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking on M3.1, and embedding SKUs excluded from chat models
 
+## [18.19.0] - 2026-11-12
+
+### Added
+
+- Added Liquid AI provider support with the d1.1 and d1-ultra judge models and Liquid authentication via `/login liquid` using `LIQUID_API_KEY`.
+
+### Fixed
+
+- Fixed Google Antigravity Gemini 4 Argon models sharing the general Gemini quota scope instead of their dedicated weekly bucket ([#16104](https://github.com/can1357/oh-my-pi/issues/16104)).
+
 ## [18.18.9] - 2026-11-11
 
 ### Added
