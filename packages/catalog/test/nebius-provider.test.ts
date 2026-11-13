@@ -310,7 +310,7 @@ describe("Nebius Token Factory reasoning capability", () => {
 				Response.json({
 					data: [
 						{
-							id: "deepseek-ai/DeepSeek-V4.1-Flash",
+							id: "deepseek-ai/DeepSeek-V4.1-Flash-1017",
 							context_length: 1048000,
 							architecture: { modality: "text->text" },
 						},
@@ -331,7 +331,7 @@ describe("Nebius Token Factory reasoning capability", () => {
 				Response.json({
 					data: [
 						{
-							id: "deepseek-ai/DeepSeek-V4.1-Flash",
+							id: "deepseek-ai/DeepSeek-V4.1-Flash-1017",
 							context_length: 1048000,
 							architecture: { modality: "text->text" },
 							supported_features: [],

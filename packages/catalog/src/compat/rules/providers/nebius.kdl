@@ -2,7 +2,10 @@
 // authenticated verbose discovery replaces the roster and deployment metadata.
 
 provider "nebius" {
-	default-model "deepseek-ai/DeepSeek-V4-Flash-0731"
+	// The serverless roster retired `DeepSeek-V4-Flash-0731` and the undated
+	// `DeepSeek-V4.1-Flash` on 2026-11-12; the dated snapshot is the public
+	// Flash row now (`/v1/models?verbose=true`).
+	default-model "deepseek-ai/DeepSeek-V4.1-Flash-1017"
 	env "NEBIUS_API_KEY"
 	dynamic-models-authoritative #true
 	discovery label="Nebius Token Factory"

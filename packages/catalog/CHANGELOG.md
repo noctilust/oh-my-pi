@@ -6,6 +6,10 @@
 
 - Added Nebius Token Factory (`nebius`) with `/login nebius` or `NEBIUS_API_KEY`, serverless and dedicated model discovery, roster-driven reasoning and native tool support from `supported_features`, MiniMax effort tiers from `low` through `max` with `none` to disable thinking on M3.1, and embedding SKUs excluded from chat models
 
+### Fixed
+
+- Fixed Nebius Token Factory's default model naming `deepseek-ai/DeepSeek-V4-Flash-0731` after the serverless roster retired it, along with the undated `DeepSeek-V4.1-Flash` and `DeepSeek-V4-Pro` ids; the default is now the public `deepseek-ai/DeepSeek-V4.1-Flash-1017` snapshot and the bundled-reference tests use the dated ids the roster serves
+
 ## [18.19.0] - 2026-11-12
 
 ### Added
