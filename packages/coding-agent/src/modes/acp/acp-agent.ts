@@ -2465,17 +2465,34 @@ export class AcpAgent implements Agent {
 		const models = session.getAvailableModels();
 		const currentModel = session.model;
 		if (models.length > 0) {
+			const options = models.map(model => ({
+				value: this.#toModelId(model),
+				name: model.name,
+				description: `${model.provider}/${model.id}`,
+			}));
+			// ACP clients validate a selection against `options` and refuse the
+			// session when `currentValue` is absent, so the session's own model
+			// stays selectable even when the registry does not list it: a
+			// provider listing that is unavailable (e.g. a dedicated endpoint
+			// missing from a stale discovery result) hides models the session
+			// already runs on.
+			if (currentModel) {
+				const currentId = this.#toModelId(currentModel);
+				if (!options.some(option => option.value === currentId)) {
+					options.unshift({
+						value: currentId,
+						name: currentModel.name,
+						description: `${currentModel.provider}/${currentModel.id}`,
+					});
+				}
+			}
 			configOptions.push({
 				id: MODEL_CONFIG_ID,
 				name: "Model",
 				category: "model",
 				type: "select",
 				currentValue: currentModel ? this.#toModelId(currentModel) : this.#toModelId(models[0]),
-				options: models.map(model => ({
-					value: this.#toModelId(model),
-					name: model.name,
-					description: `${model.provider}/${model.id}`,
-				})),
+				options,
 			});
 		}
 
@@ -2517,6 +2534,10 @@ export class AcpAgent implements Agent {
 	async #setModelById(session: AgentSession, modelId: string): Promise<void> {
 		const model = session.getAvailableModels().find(candidate => this.#toModelId(candidate) === modelId);
 		if (!model) {
+			// The session's own model is always offered by `#buildConfigOptions`
+			// even when the registry omits it, so writing that same id back is a
+			// no-op rather than an unknown-model failure.
+			if (session.model && this.#toModelId(session.model) === modelId) return;
 			throw new Error(`Unknown ACP model: ${modelId}`);
 		}
 		await session.setModel(model);

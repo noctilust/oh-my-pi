@@ -6,6 +6,7 @@
 
 - Advisors no longer get repeat-read warnings for reads another advisor made; each advisor now keeps its own tool state (snapshots, conflict history, repeat-read counts) ([#18834](https://github.com/can1357/oh-my-pi/issues/18834))
 - `/new` and switching sessions now start tools fresh: `conflict://` ids, already-reported diagnostics and repeat-read counts no longer carry over from the previous conversation, for the main agent and advisors alike
+- An ACP session always offers its current model among the selectable models, even when the provider listing omits it (a dedicated endpoint missing from a stale discovery result, for example), and selecting that same model again is a no-op; a client that validates the selection against the offered list (T3 Code) no longer refuses the session.
 
 ## [18.20.0] - 2026-11-12
 

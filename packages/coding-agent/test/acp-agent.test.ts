@@ -558,6 +558,10 @@ async function createHarness(
 		extensionRunners?: boolean;
 		/** Exposed to each created session's `modelRegistry` for MCP credential round-trips. */
 		authStorage?: AuthStorage;
+		/** Model list each created session offers; defaults to {@link TEST_MODELS}. */
+		models?: Model[];
+		/** Makes each created session's current model differ from `models[0]`. */
+		currentModel?: Model;
 	} = {},
 ): Promise<AgentHarness> {
 	const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-test-"));
@@ -601,7 +605,8 @@ async function createHarness(
 	const initialSession = new FakeAgentSession(cwdA);
 	sessions.push(initialSession);
 	const factory = async (cwd: string, factoryOptions?: { interactivePrompts?: boolean }) => {
-		const session = new FakeAgentSession(cwd);
+		const session = new FakeAgentSession(cwd, options.models ?? TEST_MODELS);
+		if (options.currentModel) session.model = options.currentModel;
 		if (options.authStorage) session.authStorage = options.authStorage;
 		if (options.extensionRunners) {
 			session.extensionRunner = new ExtensionRunner(
@@ -752,6 +757,57 @@ describe("ACP agent", () => {
 		).rejects.toMatchObject({
 			code: -32002,
 		});
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("offers a session's current model even when the registry omits it", async () => {
+		// The registry drops models whose provider listing is unavailable (a
+		// dedicated endpoint missing from a stale discovery result, for
+		// example) while the session already runs on one. Consumers such as
+		// T3 Code validate `currentValue` against `options` and refuse the
+		// session when it is absent, so the model must stay selectable — and
+		// writing it back must stay a no-op instead of an unknown-model error.
+		const orphan = buildModel({
+			id: "dedicated/sa-test/Orphan-v1",
+			name: "Orphan",
+			api: "openai-completions",
+			provider: "nebius",
+			baseUrl: "https://example.invalid",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 100_000,
+			maxTokens: 8_192,
+		});
+		const orphanId = `${orphan.provider}/${orphan.id}`;
+		const harness = await createHarness({ currentModel: orphan });
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const modelOption = created.configOptions?.find(option => option.id === "model") as
+			| { currentValue?: string; options?: Array<{ value: string }> }
+			| undefined;
+		expect(modelOption?.currentValue).toBe(orphanId);
+		expect(modelOption?.options?.map(option => option.value)).toContain(orphanId);
+		// Listed first so the session's running model stays visible ahead of the
+		// registry's own ordering.
+		expect(modelOption?.options?.[0]?.value).toBe(orphanId);
+
+		await harness.agent.setSessionConfigOption({
+			sessionId: created.sessionId,
+			configId: "model",
+			value: orphanId,
+		});
+		expect(harness.findSession(created.sessionId)?.model?.id).toBe(orphan.id);
+
+		// An id that is neither listed nor current still fails.
+		await expect(
+			harness.agent.setSessionConfigOption({
+				sessionId: created.sessionId,
+				configId: "model",
+				value: "nobody/nothing",
+			}),
+		).rejects.toThrow(/Unknown ACP model/);
 
 		harness.abortController.abort();
 		await Bun.sleep(0);
