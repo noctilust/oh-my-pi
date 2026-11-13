@@ -1101,7 +1101,9 @@ export class AcpAgent implements Agent {
 		const supportsTerminalAuth = this.#clientCapabilities?.auth?.terminal === true;
 		const validMethods = supportsTerminalAuth ? ["agent", "terminal"] : ["agent"];
 		if (!validMethods.includes(params.methodId)) {
-			throw new Error(`Unknown ACP auth method: ${params.methodId}`);
+			// ACP: malformed parameters and unsupported values get `-32602`, so an
+			// unadvertised method id is invalid params rather than an internal fault.
+			throw RequestError.invalidParams({ methodId: params.methodId }, `Unknown ACP auth method: ${params.methodId}`);
 		}
 		return {};
 	}
@@ -1192,8 +1194,14 @@ export class AcpAgent implements Agent {
 
 	async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
 		const record = this.#getSessionRecord(params.sessionId);
+		// ACP: an unknown `configId` or an unsupported value on a select option is
+		// invalid params, never an internal error. Every option this agent emits is a
+		// `select`, so a boolean payload is always unsupported.
 		if (typeof params.value === "boolean") {
-			throw new Error(`Unsupported boolean ACP config option: ${params.configId}`);
+			throw RequestError.invalidParams(
+				{ configId: params.configId, value: params.value },
+				`Unsupported boolean ACP config option: ${params.configId}`,
+			);
 		}
 
 		switch (params.configId) {
@@ -1207,7 +1215,10 @@ export class AcpAgent implements Agent {
 				this.#setThinkingLevelById(record.session, params.value);
 				break;
 			default:
-				throw new Error(`Unknown ACP config option: ${params.configId}`);
+				throw RequestError.invalidParams(
+					{ configId: params.configId },
+					`Unknown ACP config option: ${params.configId}`,
+				);
 		}
 
 		// When mode is changed via the generic config-option API, mirror the
@@ -1627,7 +1638,7 @@ export class AcpAgent implements Agent {
 		let timer: NodeJS.Timeout | undefined;
 		const timeout = new Promise<never>((_, reject) => {
 			timer = setTimeout(
-				() => reject(RequestError.resourceNotFound(record.protocolSessionId)),
+				() => reject(RequestError.sessionNotFound(record.protocolSessionId)),
 				this.#cancelCleanupTimeoutMs,
 			);
 		});
@@ -1687,7 +1698,7 @@ export class AcpAgent implements Agent {
 			}
 			case "_omp/chats/byCwd": {
 				const cwd = typeof params.cwd === "string" ? (params.cwd as string) : undefined;
-				if (!cwd) throw new Error("cwd required");
+				if (!cwd) throw RequestError.invalidParams({ method: "_omp/chats/byCwd" }, "cwd required");
 				const limit = typeof params.limit === "number" ? Math.max(1, Math.min(500, params.limit as number)) : 100;
 				const sessions = await SessionManager.list(cwd);
 				const sorted = sessions.sort((l, r) => r.modified.getTime() - l.modified.getTime()).slice(0, limit);
@@ -1716,7 +1727,8 @@ export class AcpAgent implements Agent {
 			}
 			case "_omp/extensions/toggle": {
 				const providerId = params.providerId;
-				if (typeof providerId !== "string") throw new Error("providerId required");
+				if (typeof providerId !== "string")
+					throw RequestError.invalidParams({ method: "_omp/extensions/toggle" }, "providerId required");
 				if (params.enabled === false) {
 					disableProvider(providerId);
 					return { enabled: false };
@@ -1727,7 +1739,10 @@ export class AcpAgent implements Agent {
 			case SESSION_STEERING_METHOD:
 				return await this.#handleSessionSteering(params);
 			default:
-				throw new Error(`Unknown ACP ext method: ${method}`);
+				// ACP: a method the receiver does not implement — including a
+				// capability-gated one it never advertised — answers `-32601`
+				// (method not found), never an internal error.
+				throw RequestError.methodNotFound(method);
 		}
 	}
 
@@ -1877,7 +1892,7 @@ export class AcpAgent implements Agent {
 		const stored =
 			(moved ? await this.#findStoredSession(moved, cwd) : undefined) ??
 			(await this.#findStoredSession(handle, cwd));
-		if (!stored) throw new Error(`ACP session not found: ${handle}`);
+		if (!stored) throw RequestError.sessionNotFound(handle);
 		return stored;
 	}
 
@@ -2078,7 +2093,7 @@ export class AcpAgent implements Agent {
 	#getSessionRecord(sessionId: string): ManagedSessionRecord {
 		const record = this.#sessions.get(sessionId);
 		if (!record) {
-			throw RequestError.resourceNotFound(sessionId);
+			throw RequestError.sessionNotFound(sessionId);
 		}
 		return record;
 	}
@@ -2087,7 +2102,10 @@ export class AcpAgent implements Agent {
 		const expected = path.resolve(cwd);
 		const actual = path.resolve(session.sessionManager.getCwd());
 		if (actual !== expected) {
-			throw new Error(`ACP session ${session.sessionId} is already loaded for ${actual}, not ${expected}`);
+			throw RequestError.invalidParams(
+				{ sessionId: session.sessionId, cwd: expected, loadedCwd: actual },
+				`ACP session ${session.sessionId} is already loaded for ${actual}, not ${expected}`,
+			);
 		}
 	}
 
@@ -2107,7 +2125,7 @@ export class AcpAgent implements Agent {
 
 		const storedSession = await this.#findStoredSessionById(sessionId);
 		if (!storedSession) {
-			throw new Error(`ACP session not found: ${sessionId}`);
+			throw RequestError.sessionNotFound(sessionId);
 		}
 		return storedSession.path;
 	}
@@ -2380,7 +2398,7 @@ export class AcpAgent implements Agent {
 
 	#assertAbsoluteCwd(cwd: string): void {
 		if (!path.isAbsolute(cwd)) {
-			throw new Error(`ACP cwd must be absolute: ${cwd}`);
+			throw RequestError.invalidParams({ cwd }, `ACP cwd must be absolute: ${cwd}`);
 		}
 	}
 
@@ -2464,18 +2482,19 @@ export class AcpAgent implements Agent {
 
 		const models = session.getAvailableModels();
 		const currentModel = session.model;
-		if (models.length > 0) {
+		// ACP clients validate a selection against `options` and refuse the
+		// session when `currentValue` is absent, so the session's own model
+		// stays selectable even when the registry does not list it: a
+		// provider listing that is unavailable (e.g. a dedicated endpoint
+		// missing from a stale discovery result) hides models the session
+		// already runs on. The option therefore exists whenever the session has
+		// a model, even if the registry lists none.
+		if (models.length > 0 || currentModel) {
 			const options = models.map(model => ({
 				value: this.#toModelId(model),
 				name: model.name,
 				description: `${model.provider}/${model.id}`,
 			}));
-			// ACP clients validate a selection against `options` and refuse the
-			// session when `currentValue` is absent, so the session's own model
-			// stays selectable even when the registry does not list it: a
-			// provider listing that is unavailable (e.g. a dedicated endpoint
-			// missing from a stale discovery result) hides models the session
-			// already runs on.
 			if (currentModel) {
 				const currentId = this.#toModelId(currentModel);
 				if (!options.some(option => option.value === currentId)) {
@@ -2538,7 +2557,10 @@ export class AcpAgent implements Agent {
 			// even when the registry omits it, so writing that same id back is a
 			// no-op rather than an unknown-model failure.
 			if (session.model && this.#toModelId(session.model) === modelId) return;
-			throw new Error(`Unknown ACP model: ${modelId}`);
+			throw RequestError.invalidParams(
+				{ configId: MODEL_CONFIG_ID, value: modelId },
+				`Unknown ACP model: ${modelId}`,
+			);
 		}
 		await session.setModel(model);
 	}
@@ -2546,7 +2568,10 @@ export class AcpAgent implements Agent {
 	#setThinkingLevelById(session: AgentSession, value: string): void {
 		const thinkingLevel = parseConfiguredThinkingLevel(value);
 		if (!thinkingLevel) {
-			throw new Error(`Unknown ACP thinking level: ${value}`);
+			throw RequestError.invalidParams(
+				{ configId: THINKING_CONFIG_ID, value },
+				`Unknown ACP thinking level: ${value}`,
+			);
 		}
 		session.setThinkingLevel(thinkingLevel);
 	}
@@ -2576,7 +2601,7 @@ export class AcpAgent implements Agent {
 		const session = record.session;
 		const availableModes = this.#getAvailableModes(session);
 		if (!availableModes.some(mode => mode.id === modeId)) {
-			throw new Error(`Unsupported ACP mode: ${modeId}`);
+			throw RequestError.invalidParams({ modeId }, `Unsupported ACP mode: ${modeId}`);
 		}
 		if (modeId === ACP_PLAN_MODE_ID) {
 			const previous = session.getPlanModeState();
@@ -3001,7 +3026,7 @@ export class AcpAgent implements Agent {
 		}
 		const parsed = Number.parseInt(cursor, 10);
 		if (!Number.isFinite(parsed) || parsed < 0) {
-			throw new Error(`Invalid ACP session cursor: ${cursor}`);
+			throw RequestError.invalidParams({ cursor }, `Invalid ACP session cursor: ${cursor}`);
 		}
 		return parsed;
 	}
@@ -3489,8 +3514,12 @@ export class AcpAgent implements Agent {
 			};
 		}
 		// The experimental ACP-channel transport (`type: "acp"`) is not advertised in
-		// `mcpCapabilities`, so a spec-compliant client never sends it; reject defensively.
-		throw new Error(`Unsupported MCP server transport: ${server.type}`);
+		// `mcpCapabilities`, so a spec-compliant client never sends it; reject it as an
+		// unsupported parameter value rather than an internal fault.
+		throw RequestError.invalidParams(
+			{ mcpServer: server.name, transport: server.type },
+			`Unsupported MCP server transport: ${server.type}`,
+		);
 	}
 
 	#toNameValueMap(values: Array<{ name: string; value: string }>): { [name: string]: string } {
@@ -3502,7 +3531,7 @@ export class AcpAgent implements Agent {
 	}
 
 	async #closeManagedSession(sessionId: string, record: ManagedSessionRecord): Promise<void> {
-		record.closedError ??= RequestError.resourceNotFound(sessionId);
+		record.closedError ??= RequestError.sessionNotFound(sessionId);
 		this.#sessions.delete(sessionId);
 		await this.#cancelPromptForClose(record);
 		await this.#disposeSessionRecord(record);
@@ -3561,7 +3590,7 @@ export class AcpAgent implements Agent {
 			await Promise.all(
 				records.map(async ([sessionId, record]) => {
 					try {
-						record.closedError ??= RequestError.resourceNotFound(sessionId);
+						record.closedError ??= RequestError.sessionNotFound(sessionId);
 						await this.#cancelPromptForClose(record);
 						await this.#disposeSessionRecord(record, reason);
 					} catch (error) {

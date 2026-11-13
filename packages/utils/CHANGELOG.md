@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `RequestError.sessionNotFound`: the ACP `-32002` not-found error for a session-scoped request, carrying `data.sessionId`.
+
 ## [18.19.0] - 2026-11-12
 
 ### Added

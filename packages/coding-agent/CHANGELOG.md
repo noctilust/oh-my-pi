@@ -7,6 +7,7 @@
 - Advisors no longer get repeat-read warnings for reads another advisor made; each advisor now keeps its own tool state (snapshots, conflict history, repeat-read counts) ([#18834](https://github.com/can1357/oh-my-pi/issues/18834))
 - `/new` and switching sessions now start tools fresh: `conflict://` ids, already-reported diagnostics and repeat-read counts no longer carry over from the previous conversation, for the main agent and advisors alike
 - An ACP session always offers its current model among the selectable models, even when the provider listing omits it (a dedicated endpoint missing from a stale discovery result, for example), and selecting that same model again is a no-op; a client that validates the selection against the offered list (T3 Code) no longer refuses the session.
+- The ACP server answers with the error codes the protocol defines: a refused configuration value, unknown `configId`, unknown mode, invalid `session/list` cursor or unknown auth method is `-32602` invalid params (clients such as T3 Code read that as "the agent refused this value" and keep the session), an unknown session is `-32002` with `data.sessionId` (including `session/load` and `session/resume`, previously an internal error), and an unimplemented method is `-32601` method not found.
 
 ## [18.20.0] - 2026-11-12
 

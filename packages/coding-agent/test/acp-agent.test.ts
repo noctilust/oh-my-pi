@@ -800,14 +800,113 @@ describe("ACP agent", () => {
 		});
 		expect(harness.findSession(created.sessionId)?.model?.id).toBe(orphan.id);
 
-		// An id that is neither listed nor current still fails.
+		// An id that is neither listed nor current still fails, with the ACP code
+		// for an unsupported value.
 		await expect(
 			harness.agent.setSessionConfigOption({
 				sessionId: created.sessionId,
 				configId: "model",
 				value: "nobody/nothing",
 			}),
-		).rejects.toThrow(/Unknown ACP model/);
+		).rejects.toMatchObject({
+			code: -32602,
+			message: expect.stringContaining("Unknown ACP model"),
+		});
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("offers the session's model when the registry lists none", async () => {
+		// With no usable provider listing the option used to disappear entirely, so
+		// a client could neither see nor select the model the session runs on.
+		const orphan = buildModel({
+			id: "dedicated/sa-test/Unlisted-v1",
+			name: "Unlisted",
+			api: "openai-completions",
+			provider: "nebius",
+			baseUrl: "https://example.invalid",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 100_000,
+			maxTokens: 8_192,
+		});
+		const orphanId = `${orphan.provider}/${orphan.id}`;
+		const harness = await createHarness({ models: [], currentModel: orphan });
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const modelOption = created.configOptions?.find(option => option.id === "model") as
+			| { currentValue?: string; options?: Array<{ value: string }> }
+			| undefined;
+		expect(modelOption?.currentValue).toBe(orphanId);
+		expect(modelOption?.options?.map(option => option.value)).toEqual([orphanId]);
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("answers refused values and unknown ids with the ACP error codes", async () => {
+		// The ACP error contract decides how clients react: `-32602` means the agent
+		// refused the value (T3 Code keeps the session and asks for another model)
+		// while an internal error fails the turn. `data` carries the offending input.
+		const harness = await createHarness();
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const sessionId = created.sessionId;
+		const rows: Array<{ name: string; run: () => Promise<unknown>; data: Record<string, unknown> }> = [
+			{
+				name: "unknown model",
+				run: () => harness.agent.setSessionConfigOption({ sessionId, configId: "model", value: "nobody/none" }),
+				data: { configId: "model", value: "nobody/none" },
+			},
+			{
+				name: "unknown thinking level",
+				run: () =>
+					harness.agent.setSessionConfigOption({ sessionId, configId: "thinking", value: "definitely-not" }),
+				data: { configId: "thinking", value: "definitely-not" },
+			},
+			{
+				name: "boolean value for a select option",
+				run: () => harness.agent.setSessionConfigOption({ sessionId, configId: "thinking", value: true }),
+				data: { configId: "thinking", value: true },
+			},
+			{
+				name: "unknown config option",
+				run: () => harness.agent.setSessionConfigOption({ sessionId, configId: "nope", value: "x" }),
+				data: { configId: "nope" },
+			},
+			{
+				name: "unknown mode",
+				run: () => harness.agent.setSessionMode({ sessionId, modeId: "nope" }),
+				data: { modeId: "nope" },
+			},
+			{
+				name: "unknown auth method",
+				run: () => harness.agent.authenticate({ methodId: "nope" }),
+				data: { methodId: "nope" },
+			},
+			{
+				name: "invalid session cursor",
+				run: () => harness.agent.listSessions({ cursor: "not-a-cursor" }),
+				data: { cursor: "not-a-cursor" },
+			},
+		];
+		for (const row of rows) {
+			await expect(row.run()).rejects.toMatchObject({ code: -32602, data: row.data });
+		}
+
+		// A session-scoped request naming an unknown session is not-found, and names it.
+		await expect(
+			harness.agent.setSessionConfigOption({ sessionId: "missing", configId: "model", value: "x" }),
+		).rejects.toMatchObject({ code: -32002, data: { sessionId: "missing" } });
+		await expect(
+			harness.agent.loadSession({ sessionId: "missing", cwd: harness.cwdA, mcpServers: [] }),
+		).rejects.toMatchObject({ code: -32002, data: { sessionId: "missing" } });
+		await expect(
+			harness.agent.resumeSession({ sessionId: "missing", cwd: harness.cwdA, mcpServers: [] }),
+		).rejects.toMatchObject({
+			code: -32002,
+			data: { sessionId: "missing" },
+		});
 
 		harness.abortController.abort();
 		await Bun.sleep(0);
@@ -1486,9 +1585,11 @@ describe("ACP agent", () => {
 
 		expect(Array.isArray(result.sessions)).toBe(true);
 		expect(typeof result.total).toBe("number");
-		await expect(harness.agent.extMethod("omp/sessions/listAll", { limit: 2 })).rejects.toThrow(
-			"Unknown ACP ext method",
-		);
+		// ACP: a method the agent does not implement answers -32601 (method not
+		// found), not an internal error.
+		await expect(harness.agent.extMethod("omp/sessions/listAll", { limit: 2 })).rejects.toMatchObject({
+			code: -32601,
+		});
 
 		harness.abortController.abort();
 		await Bun.sleep(0);

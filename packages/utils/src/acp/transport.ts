@@ -69,13 +69,26 @@ export class RequestError extends Error {
 	static authRequired(data?: unknown, additionalMessage?: string): RequestError {
 		return createStandardError(-32000, "Authentication required", data, additionalMessage);
 	}
-	/** Creates a resource-not-found error. */
+	/**
+	 * Creates a resource-not-found error. For an unknown or inactive session,
+	 * prefer `RequestError.sessionNotFound`, which sets `data.sessionId` as the
+	 * protocol expects.
+	 */
 	static resourceNotFound(uri?: string): RequestError {
 		return new RequestError(
 			-32002,
 			uri === undefined ? "Resource not found" : `Resource not found: ${uri}`,
 			uri === undefined ? undefined : { uri },
 		);
+	}
+	/**
+	 * Creates a not-found error for a session a request names that does not exist
+	 * or is not active on the connection. ACP requires `-32002` with
+	 * `data.sessionId` for those requests, and lets clients treat it as a
+	 * successful close/delete.
+	 */
+	static sessionNotFound(sessionId: string): RequestError {
+		return new RequestError(-32002, "Resource not found", { sessionId });
 	}
 	/**
 	 * Creates a session-busy error: the agent/session is already processing, so the
