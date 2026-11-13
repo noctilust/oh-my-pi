@@ -260,6 +260,58 @@ async function fetchProviderModelsFromCatalog(
 	}
 }
 
+/**
+ * Credential-scoped providers are deliberately never fetched during generation
+ * and their previous-snapshot rows are dropped, so their bundle is the shared
+ * catalog plus the authored seed. That leaves one hole: a KDL `default-model`
+ * the host has retired would stay bundled forever and silently degrade
+ * provider-default selection (the picker falls back to `models[0]`). When
+ * credentials are available, verify the default against the provider's own live
+ * roster — a roster that answers without the default fails the run so the sync
+ * job stops instead of committing a stale default. Missing credentials or a
+ * failed roster fetch only warn: this check must never block a build for
+ * reasons unrelated to a retired id.
+ */
+async function verifyCredentialScopedDefaults(descriptors: readonly CatalogProviderDescriptor[]): Promise<void> {
+	for (const descriptor of descriptors) {
+		const providerId = descriptor.providerId;
+		const defaultModel = providerEntry(providerId)?.defaultModel;
+		if (defaultModel === undefined) continue;
+		let rosterIds: ReadonlySet<string>;
+		try {
+			const apiKey = await resolveProviderApiKey(providerId, descriptor.catalogDiscovery);
+			if (!apiKey) {
+				console.log(
+					`No ${descriptor.catalogDiscovery.label} credentials found; skipping default-model verification`,
+				);
+				continue;
+			}
+			const roster = await descriptor.createModelManagerOptions({ apiKey }).fetchDynamicModels?.();
+			if (!roster) {
+				console.warn(
+					`${descriptor.catalogDiscovery.label} roster fetch failed; skipping default-model verification`,
+				);
+				continue;
+			}
+			rosterIds = new Set(roster.map(model => model.id));
+		} catch (error) {
+			console.warn(
+				`Could not verify the ${providerId} default model: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			continue;
+		}
+		if (!rosterIds.has(defaultModel)) {
+			throw new Error(
+				`${providerId} default-model \`${defaultModel}\` is not in its live roster (${rosterIds.size} rows); ` +
+					`point providers/${providerId}.kdl at a served id before regenerating`,
+			);
+		}
+		console.log(
+			`Verified ${providerId} default-model \`${defaultModel}\` against its live roster (${rosterIds.size} rows)`,
+		);
+	}
+}
+
 async function loadModelsDevData(): Promise<ModelSpec[]> {
 	try {
 		console.log("Fetching stencil.so catalog from catalog.stencil.so...");
@@ -583,6 +635,17 @@ async function generateModels(selectedProvider?: string) {
 			!DISCOVERY_ONLY_PROVIDERS.has(descriptor.providerId) &&
 			!CREDENTIAL_SCOPED_PROVIDERS.has(descriptor.providerId) &&
 			(selectedProvider === undefined || descriptor.providerId === selectedProvider),
+	);
+	// The credential-scoped providers excluded above are exactly the ones whose
+	// bundle is rebuilt from the shared catalog on every run, so verify their KDL
+	// defaults against the live roster before any generation work happens.
+	await verifyCredentialScopedDefaults(
+		PROVIDER_DESCRIPTORS.filter(
+			(descriptor): descriptor is CatalogProviderDescriptor =>
+				isCatalogDescriptor(descriptor) &&
+				CREDENTIAL_SCOPED_PROVIDERS.has(descriptor.providerId) &&
+				(selectedProvider === undefined || descriptor.providerId === selectedProvider),
+		),
 	);
 	const catalogProviderModelBatches = await Promise.all(
 		catalogProviderDescriptors.map(async descriptor => ({

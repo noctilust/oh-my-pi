@@ -1,14 +1,29 @@
-// Nebius Token Factory: bundled metadata comes from the shared catalog;
-// authenticated verbose discovery replaces the roster and deployment metadata.
+// Nebius Token Factory: bundled metadata comes from the shared catalog plus the
+// reference row seeded below; authenticated verbose discovery replaces the
+// roster and deployment metadata.
 
 provider "nebius" {
 	// The serverless roster retired `DeepSeek-V4-Flash-0731` and the undated
-	// `DeepSeek-V4.1-Flash` on 2026-11-12; the dated snapshot is the public
+	// `DeepSeek-V4.1-Flash` on 2026-11-12; the dated snapshot below is the public
 	// Flash row now (`/v1/models?verbose=true`).
 	default-model "deepseek-ai/DeepSeek-V4.1-Flash-1017"
 	env "NEBIUS_API_KEY"
 	dynamic-models-authoritative #true
 	discovery label="Nebius Token Factory"
+
+	// A credential-scoped provider's bundle is rebuilt from the shared catalog on
+	// every regeneration (previous-snapshot rows are dropped), so a row the feed
+	// retires would vanish and take `default-model` with it. This seed keeps one
+	// public reference row bundled unconditionally; `precedence="upstream"` lets
+	// the live feed's metadata win whenever the feed still lists the id.
+	seed api="openai-completions" base-url="https://api.tokenfactory.nebius.com/v1" bundle="always" precedence="upstream" {
+		model "deepseek-ai/DeepSeek-V4.1-Flash-1017" name="DeepSeek V4.1 Flash 1017" {
+			reasoning #true
+			input "text" "image"
+			cost input=0.3 output=1.2 cache-read=0.006 cache-write=0
+			limits context=1048576 max-tokens=1048576
+		}
+	}
 
 	// Deployment effort vocabularies: catalog.stencil.so/models.json, 2026-10-23.
 	// The verbose API omits these controls; lineage defaults are not host contracts.
