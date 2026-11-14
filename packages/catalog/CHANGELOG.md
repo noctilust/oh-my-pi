@@ -12,6 +12,12 @@
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
 
+## [18.20.2] - 2026-11-14
+
+### Added
+
+- Added Antigravity CLI models for Gemini, Claude and GPT-OSS with selectable native thinking levels.
+
 ## [18.20.1] - 2026-11-14
 
 ### Added
