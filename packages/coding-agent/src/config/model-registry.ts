@@ -154,6 +154,12 @@ setCodexAttestationProvider(generateCodexAttestation);
 
 /** One built-in discovery pass rewriting more payload rows than this is debug-logged. */
 const MODEL_CACHE_REWRITE_LOG_THRESHOLD = 5;
+/**
+ * Failed credential-scoped hydration runs per registry. Each run already retries
+ * once, so a credential that stays broken is probed at most twice per session's
+ * first two awaiters instead of before every session.
+ */
+const CREDENTIAL_SCOPED_HYDRATION_RETRIES = 2;
 /** `scheme://user:pass@` in free text (e.g. a fetch error echoing the request URL). */
 const URL_USERINFO_RE = /([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
 const BUILT_IN_MODEL_MANAGER_PROVIDER_IDS: Readonly<Record<string, true>> = Object.freeze(
@@ -386,6 +392,8 @@ export class ModelRegistry {
 	/** Waiter armed before the initial background refresh starts (CLI kicks it off after the session is built, #10048). */
 	#initialRefreshWaiters = new Set<() => void>();
 	#credentialScopedCacheHydration?: Promise<void>;
+	/** Failed hydration runs since construction; bounds retry work when a credential stays broken. */
+	#credentialScopedHydrationFailures = 0;
 	#configuredDiscoveryInFlight: Map<
 		DiscoveryProviderConfig,
 		Map<ModelRefreshStrategy, Promise<ConfiguredModelDiscoveryResult>>
@@ -857,19 +865,26 @@ export class ModelRegistry {
 	 *
 	 * The synchronous constructor cannot resolve credentials, so session startup
 	 * awaits this local-only, best-effort pass before validating model selectors.
+	 *
+	 * A failed pass must not pin the process to bundled-only catalogs: a transient
+	 * credential-store failure during concurrent startup is enough to hide every
+	 * discovery-only row (a dedicated endpoint, a per-workspace roster), and ACP
+	 * clients then refuse a session whose stored model came from the hidden rows —
+	 * the client validated the model against the option list this registry
+	 * produced. Failures therefore log at `warn` and retry once inline, and the
+	 * next awaiter tries again; only {@link CREDENTIAL_SCOPED_HYDRATION_RETRIES}
+	 * failed runs are attempted, so a credential that stays broken cannot repeat
+	 * the pass before every session.
 	 */
 	async hydrateCredentialScopedModelCaches(): Promise<void> {
 		if (this.#owner) return this.#owner.hydrateCredentialScopedModelCaches();
+		if (this.#credentialScopedHydrationFailures >= CREDENTIAL_SCOPED_HYDRATION_RETRIES) return;
 		if (!this.#credentialScopedCacheHydration) {
 			const providerIds = new Set<string>();
 			for (const providerId of STARTUP_MODEL_CACHE_PROVIDER_IDS) {
 				if (isCredentialScopedModelCacheProvider(providerId)) providerIds.add(providerId);
 			}
-			this.#credentialScopedCacheHydration = this.#refreshRuntimeDiscoveries("offline", providerIds).catch(error => {
-				logger.debug("credential-scoped model cache hydration failed", {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			});
+			this.#credentialScopedCacheHydration = this.#runCredentialScopedHydration(providerIds);
 		}
 		const hydration = this.#credentialScopedCacheHydration;
 		try {
@@ -878,6 +893,27 @@ export class ModelRegistry {
 			if (this.#credentialScopedCacheHydration === hydration) {
 				this.#credentialScopedCacheHydration = undefined;
 			}
+		}
+	}
+
+	/** One credential-scoped hydration run: see {@link hydrateCredentialScopedModelCaches}. */
+	async #runCredentialScopedHydration(providerIds: ReadonlySet<string>): Promise<void> {
+		if (await this.#tryOfflineCredentialScopedPass(providerIds)) return;
+		// A transient store or cache-db failure is the common cause; one immediate
+		// retry recovers it while the session that awaits this still has a chance.
+		if (await this.#tryOfflineCredentialScopedPass(providerIds)) return;
+		this.#credentialScopedHydrationFailures++;
+	}
+
+	async #tryOfflineCredentialScopedPass(providerIds: ReadonlySet<string>): Promise<boolean> {
+		try {
+			await this.#refreshRuntimeDiscoveries("offline", providerIds);
+			return true;
+		} catch (error) {
+			logger.warn("credential-scoped model cache refresh failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return false;
 		}
 	}
 

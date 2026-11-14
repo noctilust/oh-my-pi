@@ -191,6 +191,14 @@ class FakeAgentSession {
 	retryCalls = 0;
 	/** Backs `modelRegistry.authStorage` for `/mcp reauth` credential round-trips. */
 	authStorage?: AuthStorage;
+	/** Catalog the fake registry resolves ids against, kept when {@link models} is replaced. */
+	knownModels: Model[];
+	/** Discovery state the fake registry reports for its provider, if any. */
+	discoveryStatus: string | undefined;
+	/** Settles {@link pendingCatalog}; armed only when a test simulates a running discovery pass. */
+	pendingCatalog: Promise<void> | undefined;
+	/** Fired when a handler parks on the pending catalog, so a test can await that moment. */
+	awaitCatalogHook: (() => void) | undefined;
 	#listeners = new Set<(event: AgentSessionEvent) => void>();
 
 	constructor(
@@ -206,16 +214,49 @@ class FakeAgentSession {
 			},
 		};
 		this.model = models[0];
+		this.knownModels = [...models];
 	}
 
 	get sessionName(): string {
 		return this.sessionManager.getHeader()?.title ?? `Session ${this.sessionId}`;
 	}
 
-	get modelRegistry(): { getApiKey: (model: Model) => Promise<string>; authStorage?: AuthStorage } {
+	get modelRegistry(): {
+		getApiKey: (model: Model) => Promise<string>;
+		find: (provider: string, modelId: string) => Model | undefined;
+		isBackgroundRefreshPending: () => boolean;
+		getProviderDiscoveryState: (provider: string) => { status: string } | undefined;
+		awaitInitialBackgroundRefresh: () => Promise<void>;
+		authStorage?: AuthStorage;
+	} {
 		return {
 			getApiKey: async (_model: Model) => "test-key",
+			find: (provider: string, modelId: string) =>
+				this.knownModels.find(model => model.provider === provider && model.id === modelId),
+			isBackgroundRefreshPending: () => this.pendingCatalog !== undefined,
+			getProviderDiscoveryState: (_provider: string) =>
+				this.discoveryStatus === undefined ? undefined : { status: this.discoveryStatus },
+			awaitInitialBackgroundRefresh: async () => {
+				this.awaitCatalogHook?.();
+				await this.pendingCatalog;
+			},
 			...(this.authStorage ? { authStorage: this.authStorage } : {}),
+		};
+	}
+
+	/**
+	 * Simulate a running discovery pass: the registry reports it pending until the
+	 * returned settle function publishes the roster it found.
+	 */
+	beginCatalogRefresh(): (models: Model[]) => void {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		this.pendingCatalog = promise;
+		this.discoveryStatus = "idle";
+		return models => {
+			this.models.splice(0, this.models.length, ...models);
+			this.discoveryStatus = "cached";
+			this.pendingCatalog = undefined;
+			resolve();
 		};
 	}
 
@@ -562,6 +603,8 @@ async function createHarness(
 		models?: Model[];
 		/** Makes each created session's current model differ from `models[0]`. */
 		currentModel?: Model;
+		/** Runs on each session the factory creates, before the agent sees it. */
+		prepareSession?: (session: FakeAgentSession) => void;
 	} = {},
 ): Promise<AgentHarness> {
 	const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-acp-test-"));
@@ -608,6 +651,7 @@ async function createHarness(
 		const session = new FakeAgentSession(cwd, options.models ?? TEST_MODELS);
 		if (options.currentModel) session.model = options.currentModel;
 		if (options.authStorage) session.authStorage = options.authStorage;
+		options.prepareSession?.(session);
 		if (options.extensionRunners) {
 			session.extensionRunner = new ExtensionRunner(
 				[],
@@ -812,6 +856,99 @@ describe("ACP agent", () => {
 			code: -32602,
 			message: expect.stringContaining("Unknown ACP model"),
 		});
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("keeps a model selectable after the catalog drops it, as advertised", async () => {
+		// Clients pick a value from the option list they were handed. A discovery
+		// pass that replaces the roster afterwards must not turn that listed value
+		// into a refused one, or a mid-session model switch fails on a session that
+		// is running fine.
+		const first = TEST_MODELS[0]!;
+		const second = TEST_MODELS[1]!;
+		const models = [first, second];
+		const harness = await createHarness({ models });
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const modelOption = created.configOptions?.find(option => option.id === "model") as
+			| { options?: Array<{ value: string }> }
+			| undefined;
+		const secondId = `${second.provider}/${second.id}`;
+		expect(modelOption?.options?.map(option => option.value)).toContain(secondId);
+
+		// The roster is replaced after the client was told the value is selectable.
+		models.splice(1, 1);
+		await harness.agent.setSessionConfigOption({ sessionId: created.sessionId, configId: "model", value: secondId });
+		expect(harness.findSession(created.sessionId)?.model?.id).toBe(second.id);
+
+		// A value the catalog no longer knows cannot run, so it is refused even
+		// though it was advertised: the roster drop is only tolerated while the
+		// model still resolves.
+		await harness.agent.setSessionConfigOption({
+			sessionId: created.sessionId,
+			configId: "model",
+			value: `${first.provider}/${first.id}`,
+		});
+		const session = harness.findSession(created.sessionId)!;
+		session.knownModels = session.knownModels.filter(model => model.id !== second.id);
+		await expect(
+			harness.agent.setSessionConfigOption({ sessionId: created.sessionId, configId: "model", value: secondId }),
+		).rejects.toMatchObject({ code: -32602, message: expect.stringContaining("Unknown ACP model") });
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("waits for a running catalog refresh before advertising models", async () => {
+		// A session opened while the first discovery pass is still running used to
+		// advertise the bundled roster only, so a client holding a discovered model
+		// (a dedicated endpoint, a keyed roster row) refused the session. The open
+		// waits for the pass when this session's own provider has no roster yet.
+		const base = TEST_MODELS[0]!;
+		const discovered = buildModel({
+			id: "discovered-only-v1",
+			name: "Discovered Only",
+			api: base.api,
+			provider: base.provider,
+			baseUrl: base.baseUrl,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 100_000,
+			maxTokens: 8_192,
+		});
+		const discoveredId = `${discovered.provider}/${discovered.id}`;
+		const reachedWait = Promise.withResolvers<void>();
+		let settle: ((models: Model[]) => void) | undefined;
+		const harness = await createHarness({
+			models: [base],
+			prepareSession: session => {
+				settle = session.beginCatalogRefresh();
+				session.awaitCatalogHook = () => reachedWait.resolve();
+			},
+		});
+
+		let created = false;
+		const opening = harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] }).then(response => {
+			created = true;
+			return response;
+		});
+		// Racing the settle hook against the open itself fails fast (rather than
+		// hanging) when the handler advertises without waiting for the pass.
+		const beforeSettle = await Promise.race([
+			reachedWait.promise.then(() => "parked" as const),
+			opening.then(() => "opened" as const),
+		]);
+		expect(beforeSettle).toBe("parked");
+		expect(created).toBe(false);
+
+		settle!([base, discovered]);
+		const response = await opening;
+		const modelOption = response.configOptions?.find(option => option.id === "model") as
+			| { options?: Array<{ value: string }> }
+			| undefined;
+		expect(modelOption?.options?.map(option => option.value)).toContain(discoveredId);
 
 		harness.abortController.abort();
 		await Bun.sleep(0);

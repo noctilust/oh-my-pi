@@ -18,6 +18,7 @@ import {
 	cursorModelManagerOptions,
 	resolveModelCacheProviderId,
 	resolveOllamaModelCacheProviderId,
+	opencodeZenModelManagerOptions,
 } from "@oh-my-pi/pi-catalog/provider-models";
 import type { ModelKind, ModelSpec, OpenAICompat } from "@oh-my-pi/pi-catalog/types";
 import { CODEX_CLIENT_VERSION } from "@oh-my-pi/pi-catalog/wire/codex";
@@ -4576,6 +4577,52 @@ describe("ModelRegistry runtime discovery", () => {
 		await registry.hydrateCredentialScopedModelCaches();
 
 		expect(registry.find("cursor", "claude-opus-5-5-1m")?.contextWindow).toBe(1_000_000);
+	});
+
+	test("credential-scoped hydration retries a failed credential read instead of dropping the roster", async () => {
+		// Concurrent startup can make the credential store read fail once. A single
+		// best-effort pass then pinned the process to bundled-only catalogs for its
+		// whole life, so every discovery-only row disappeared and ACP clients
+		// refused a session whose stored model came from those rows. The retry keeps
+		// the cached roster.
+		const apiKey = "sk-opencode-zen-test";
+		authStorage.keys.setRuntime("opencode-zen", apiKey);
+		const cacheProviderId = opencodeZenModelManagerOptions({ apiKey }).cacheProviderId;
+		if (!cacheProviderId) throw new Error("Expected opencode-zen manager options to name a cache namespace");
+		const cached = buildModel({
+			id: "vendor/retry-only-v1",
+			name: "Retry Only",
+			api: "openai-completions",
+			provider: "opencode-zen",
+			baseUrl: "https://opencode.example.invalid/v1",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 100_000,
+			maxTokens: 8_192,
+		});
+		writeModelCache(
+			cacheProviderId,
+			Date.now(),
+			[cached],
+			true,
+			fingerprintStaticModels(getBundledModels("opencode-zen"), { authoritative: true }),
+			cacheDbPath,
+		);
+		const peek = authStorage.keys.peek.bind(authStorage.keys);
+		let failures = 1;
+		vi.spyOn(authStorage.keys, "peek").mockImplementation(async (provider, options) => {
+			if (provider === "opencode-zen" && failures > 0) {
+				failures--;
+				throw new Error("database is locked");
+			}
+			return await peek(provider, options);
+		});
+
+		const registry = new ModelRegistry(authStorage, modelsJsonPath);
+		await registry.hydrateCredentialScopedModelCaches();
+
+		expect(registry.find("opencode-zen", cached.id)?.id).toBe(cached.id);
 	});
 
 	test("startup drops a current Copilot alias whose headers differ from its bundled base", () => {

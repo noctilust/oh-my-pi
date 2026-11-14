@@ -400,6 +400,10 @@ type ManagedSessionRecord = {
 	liveMessageId: string | undefined;
 	liveMessageProgress: { textEmitted: boolean; thoughtEmitted: boolean } | undefined;
 	toolArgsById: Map<string, unknown>;
+	// Model ids this session offered in its `model` config option, keyed by the
+	// value the client selects. A client selects from the list it was given, so
+	// `#setModelById` honours a value the catalog dropped afterwards.
+	advertisedModels: Map<string, Model> | undefined;
 	extensionsConfigured: boolean;
 	// Capture at registration, independently of prompt turns. Delivery opens
 	// after the bootstrap guard or a client prompt proves the session is known.
@@ -1111,9 +1115,10 @@ export class AcpAgent implements Agent {
 	async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
 		this.#assertAbsoluteCwd(params.cwd);
 		const record = await this.#createNewSessionRecord(params.cwd, params.mcpServers);
+		await this.#awaitPendingModelCatalog(record.session);
 		const response: NewSessionResponse = {
 			sessionId: record.protocolSessionId,
-			configOptions: this.#buildConfigOptions(record.session),
+			configOptions: this.#buildConfigOptions(record),
 			modes: this.#buildModeState(record.session),
 		};
 		this.#scheduleBootstrapUpdates(record.protocolSessionId);
@@ -1123,9 +1128,10 @@ export class AcpAgent implements Agent {
 	async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
 		this.#assertAbsoluteCwd(params.cwd);
 		const record = await this.#loadManagedSession(params.sessionId, params.cwd, params.mcpServers);
+		await this.#awaitPendingModelCatalog(record.session);
 		await this.#replaySessionHistory(record);
 		const response: LoadSessionResponse = {
-			configOptions: this.#buildConfigOptions(record.session),
+			configOptions: this.#buildConfigOptions(record),
 			modes: this.#buildModeState(record.session),
 		};
 		this.#scheduleBootstrapUpdates(record.protocolSessionId);
@@ -1152,8 +1158,9 @@ export class AcpAgent implements Agent {
 	async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
 		this.#assertAbsoluteCwd(params.cwd);
 		const record = await this.#resumeManagedSession(params.sessionId, params.cwd, params.mcpServers ?? []);
+		await this.#awaitPendingModelCatalog(record.session);
 		const response: ResumeSessionResponse = {
-			configOptions: this.#buildConfigOptions(record.session),
+			configOptions: this.#buildConfigOptions(record),
 			modes: this.#buildModeState(record.session),
 		};
 		this.#scheduleBootstrapUpdates(record.protocolSessionId);
@@ -1163,9 +1170,10 @@ export class AcpAgent implements Agent {
 	async unstable_forkSession(params: ForkSessionRequest): Promise<ForkSessionResponse> {
 		this.#assertAbsoluteCwd(params.cwd);
 		const record = await this.#forkManagedSession(params);
+		await this.#awaitPendingModelCatalog(record.session);
 		const response: ForkSessionResponse = {
 			sessionId: record.protocolSessionId,
-			configOptions: this.#buildConfigOptions(record.session),
+			configOptions: this.#buildConfigOptions(record),
 			modes: this.#buildModeState(record.session),
 		};
 		this.#scheduleBootstrapUpdates(record.protocolSessionId);
@@ -1209,7 +1217,7 @@ export class AcpAgent implements Agent {
 				this.#applyModeChange(record, params.value);
 				break;
 			case MODEL_CONFIG_ID:
-				await this.#setModelById(record.session, params.value);
+				await this.#setModelById(record, params.value);
 				break;
 			case THINKING_CONFIG_ID:
 				this.#setThinkingLevelById(record.session, params.value);
@@ -1239,7 +1247,7 @@ export class AcpAgent implements Agent {
 		if (!handledBySubscription) {
 			await this.#pushConfigOptionUpdate(record);
 		}
-		return { configOptions: this.#buildConfigOptions(record.session) };
+		return { configOptions: this.#buildConfigOptions(record) };
 	}
 
 	async prompt(params: PromptRequest): Promise<PromptResponse> {
@@ -2009,6 +2017,7 @@ export class AcpAgent implements Agent {
 			liveMessageId: undefined,
 			liveMessageProgress: undefined,
 			toolArgsById: new Map(),
+			advertisedModels: undefined,
 			extensionsConfigured: false,
 			closedError: undefined,
 			promptEventHandlers: new Set(),
@@ -2457,12 +2466,32 @@ export class AcpAgent implements Agent {
 			sessionId: record.protocolSessionId,
 			update: {
 				sessionUpdate: "config_option_update",
-				configOptions: this.#buildConfigOptions(record.session),
+				configOptions: this.#buildConfigOptions(record),
 			},
 		});
 	}
 
-	#buildConfigOptions(session: AgentSession): SessionConfigOption[] {
+	/**
+	 * A session created while the first discovery pass is still running advertises
+	 * a bundled-only roster for any provider whose catalog comes from the network.
+	 * Clients validate the stored model against that list and refuse the session,
+	 * so wait for the pass before advertising — but only when this session's own
+	 * provider has no roster yet, keeping the healthy path (and credential-scoped
+	 * providers, which hydration already read) instant. The pass is bounded by the
+	 * per-provider discovery timeouts, and a registry whose embedder never starts
+	 * one leaves `isBackgroundRefreshPending` false.
+	 */
+	async #awaitPendingModelCatalog(session: AgentSession): Promise<void> {
+		const registry = session.modelRegistry;
+		const provider = session.model?.provider;
+		if (!provider || !registry.isBackgroundRefreshPending()) return;
+		const status = registry.getProviderDiscoveryState(provider)?.status;
+		if (status === "cached" || status === "ok") return;
+		await registry.awaitInitialBackgroundRefresh();
+	}
+
+	#buildConfigOptions(record: ManagedSessionRecord): SessionConfigOption[] {
+		const session = record.session;
 		const currentModeId = this.#getCurrentModeId(session);
 		const modeOptions = this.#getAvailableModes(session).map(mode => ({
 			value: mode.id,
@@ -2495,8 +2524,13 @@ export class AcpAgent implements Agent {
 				name: model.name,
 				description: `${model.provider}/${model.id}`,
 			}));
+			// Every value this payload offers is selectable for the session, even
+			// after the catalog drops it (`#setModelById` re-checks the catalog).
+			const advertised = new Map<string, Model>();
+			for (const model of models) advertised.set(this.#toModelId(model), model);
 			if (currentModel) {
 				const currentId = this.#toModelId(currentModel);
+				advertised.set(currentId, currentModel);
 				if (!options.some(option => option.value === currentId)) {
 					options.unshift({
 						value: currentId,
@@ -2505,6 +2539,7 @@ export class AcpAgent implements Agent {
 					});
 				}
 			}
+			record.advertisedModels = advertised;
 			configOptions.push({
 				id: MODEL_CONFIG_ID,
 				name: "Model",
@@ -2550,13 +2585,25 @@ export class AcpAgent implements Agent {
 		return value && value !== "inherit" ? value : THINKING_OFF;
 	}
 
-	async #setModelById(session: AgentSession, modelId: string): Promise<void> {
+	async #setModelById(record: ManagedSessionRecord, modelId: string): Promise<void> {
+		const session = record.session;
 		const model = session.getAvailableModels().find(candidate => this.#toModelId(candidate) === modelId);
 		if (!model) {
 			// The session's own model is always offered by `#buildConfigOptions`
 			// even when the registry omits it, so writing that same id back is a
 			// no-op rather than an unknown-model failure.
 			if (session.model && this.#toModelId(session.model) === modelId) return;
+			// A value this session advertised stays selectable: the client picks
+			// from the option list it was handed, so a catalog that dropped the row
+			// afterwards (a discovery pass replacing the roster, a settings change)
+			// must not turn a listed value into a refused one. The catalog still has
+			// to know the id; one it cannot resolve cannot run.
+			const advertised = record.advertisedModels?.get(modelId);
+			const known = advertised ? session.modelRegistry.find(advertised.provider, advertised.id) : undefined;
+			if (known) {
+				await session.setModel(known);
+				return;
+			}
 			throw RequestError.invalidParams(
 				{ configId: MODEL_CONFIG_ID, value: modelId },
 				`Unknown ACP model: ${modelId}`,
