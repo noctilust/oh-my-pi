@@ -12,6 +12,17 @@
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
 
+## [18.20.3] - 2026-11-16
+
+### Added
+
+- Added publicly available image-sizing helpers for determining model-delivered image dimensions and fitting images to a specified long edge before coordinate mapping.
+
+### Fixed
+
+- Fixed image inputs being dropped for DeepSeek V4 Flash, restoring consistent multimodal image support.
+- Restricted reasoning-effort options for Mistral GLM 5.3, GLM 5.3 Flash, and Mistral Large 4 to the levels supported by those models.
+
 ## [18.20.2] - 2026-11-14
 
 ### Added
