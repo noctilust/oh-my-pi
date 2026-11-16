@@ -12,6 +12,21 @@
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
 
+## [18.21.0] - 2026-11-16
+
+### Added
+
+- Added Modal as a hosted inference provider.
+
+### Changed
+
+- Changed the local speech model from Kokoro to Phonon 31M.
+- Improved reasoning capability detection by preserving unverified thinking-level support and using endpoint-specific probe results when available.
+
+### Fixed
+
+- Fixed xAI Grok OAuth model grok-composer-2.5-fast being incorrectly identified as non-reasoning; it now supports thinking levels from minimal through xhigh.
+
 ## [18.20.3] - 2026-11-16
 
 ### Added

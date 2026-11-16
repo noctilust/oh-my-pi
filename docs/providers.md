@@ -188,6 +188,7 @@ The variables below supply credentials after runtime/config overrides and stored
 | `nace`                           | `NACE_API_KEY`                                                                      |
 | `snowflake`                      | `SNOWFLAKE_PAT` + `SNOWFLAKE_ACCOUNT`                                               |
 | `litellm`                        | `LITELLM_API_KEY`; optional `LITELLM_BASE_URL` for the proxy endpoint               |
+| `modal`                          | `MODAL_PROXY_TOKEN`; optional `MODAL_BASE_URL` for dedicated endpoints              |
 | `kilo`                           | `KILO_API_KEY`                                                                      |
 | `zai`                            | `ZAI_API_KEY`                                                                       |
 | `zenmux`                         | `ZENMUX_API_KEY`                                                                    |
@@ -253,7 +254,7 @@ For Mistral, set `MISTRAL_API_KEY` to a key created on the Mistral console, or r
 
 `nebius` is Nebius Token Factory at `https://api.tokenfactory.nebius.com/v1`. Create a project API key at `https://tokenfactory.nebius.com/project/api-keys`, then set `NEBIUS_API_KEY` or run `/login nebius`. With a key, the roster is discovered live from `/v1/models?verbose=true`, including project-scoped dedicated deployments with their limits, prices, and modalities.
 
-OAuth-backed providers such as `anthropic`, `openai-codex`, `github-copilot`, `cursor`, `muse-code`, `ollama-cloud`, `qwen-portal`, `kimi-code`, `xai-oauth`, `wafer-serverless`, `google-gemini-cli`, `google-antigravity`, `devin`, and the GitLab providers (`gitlab-duo`, `gitlab-duo-agent`) are normally reached through `/login` rather than an environment variable. Interactive API-key logins exist too: `/login baseten`, `/login coreweave`, `/login nebius`, `/login sakana`, `/login singularityapi-dev`, and `/login singularityapi-tech` prompt for a dashboard/API key (`coreweave` additionally requires `COREWEAVE_PROJECT` for the `OpenAI-Project` header). See [Environment variables](./environment-variables.md) for search-tool and configuration variables not listed here.
+OAuth-backed providers such as `anthropic`, `openai-codex`, `github-copilot`, `cursor`, `muse-code`, `ollama-cloud`, `qwen-portal`, `kimi-code`, `xai-oauth`, `wafer-serverless`, `google-gemini-cli`, `google-antigravity`, `devin`, and the GitLab providers (`gitlab-duo`, `gitlab-duo-agent`) are normally reached through `/login` rather than an environment variable. Interactive API-key logins exist too: `/login baseten`, `/login coreweave`, `/login modal`, `/login nebius`, `/login sakana`, `/login singularityapi-dev`, and `/login singularityapi-tech` prompt for a dashboard/API key (`coreweave` additionally requires `COREWEAVE_PROJECT` for the `OpenAI-Project` header). See [Environment variables](./environment-variables.md) for search-tool and configuration variables not listed here.
 
 ### `.env` discovery and precedence
 
