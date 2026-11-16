@@ -5,6 +5,12 @@
 ### Added
 
 - Added `RequestError.sessionNotFound`: the ACP `-32002` not-found error for a session-scoped request, carrying `data.sessionId`.
+## [18.21.0] - 2026-11-16
+
+### Fixed
+
+- Fixed bare URLs swallowing the following word when Korean, Japanese, or Chinese text follows a parenthesized URL without a space.
+
 ## [18.20.3] - 2026-11-16
 
 ### Fixed
