@@ -12,6 +12,15 @@
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
 
+## [18.22.1] - 2026-11-17
+
+### Fixed
+
+- Fixed Factory Droid's Muse Spark 1.3 support so image inputs work and the model is available without the retired feature flag.
+- Fixed GitLab Duo Claude models so earlier reasoning context is handled correctly during follow-up turns and compaction.
+- Fixed stale Command Code model metadata, including image-input support, reasoning controls, token pricing, and deployment context limits.
+- Fixed retry-reset timezone handling for custom providers using the Zhipu Coding Plan endpoint, including base URLs with trailing slashes.
+
 ## [18.21.0] - 2026-11-16
 
 ### Added
