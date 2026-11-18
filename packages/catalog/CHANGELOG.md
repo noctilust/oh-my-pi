@@ -12,6 +12,18 @@
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
 
+## [18.22.2] - 2026-11-18
+
+### Added
+
+- Added Kiro to the model catalog with automatic discovery of every model available to the signed-in Kiro account ([#18955](https://github.com/can1357/oh-my-pi/pull/18955) by [@Xytronix](https://github.com/Xytronix), based on [#14215](https://github.com/can1357/oh-my-pi/pull/14215) by [@ajdiyassin](https://github.com/ajdiyassin))
+- Added Factory Droid's Claude Fable 5.2, Gemini 4 Carbon (with its launch credit promotion, half the input rate until 2026-12-01) and Kimi K3.1 Pro, each listed once the account's feature flag enables it, and GPT Image 2.6 and GPT Image 2.6 Flare ahead of GPT Image 2.5 in the `image` role's Factory defaults ([#19191](https://github.com/can1357/oh-my-pi/pull/19191) by [@will-bogusz](https://github.com/will-bogusz))
+- Added `writeModelCacheAsync()` and `forEachInSlices()`: model refreshes now build and cache discovered models in slices that yield to the event loop; `writeModelCache()` returns its outcome and no longer rewrites a provider whose rows are unchanged
+
+### Changed
+
+- `readModelCache()` parses a payload once per process: cache files holding identical rows return the same shared row objects
+
 ## [18.22.1] - 2026-11-17
 
 ### Fixed
