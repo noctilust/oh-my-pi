@@ -5,6 +5,12 @@
 ### Added
 
 - Added `RequestError.sessionNotFound`: the ACP `-32002` not-found error for a session-scoped request, carrying `data.sessionId`.
+## [18.22.2] - 2026-11-18
+
+### Added
+
+- Added `readBoundedBody` and `readBoundedJson` for reading HTTP response bodies with a size limit, with an optional signal so a stalled peer cannot outlive the caller's deadline ([#18955](https://github.com/can1357/oh-my-pi/pull/18955) by [@Xytronix](https://github.com/Xytronix))
+
 ## [18.21.0] - 2026-11-16
 
 ### Fixed
