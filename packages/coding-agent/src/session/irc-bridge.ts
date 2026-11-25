@@ -1,6 +1,6 @@
 import type { Agent, AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { isRecord, prompt } from "@oh-my-pi/pi-utils";
-import { type IrcMessage } from "@oh-my-pi/pi-tui/tools/irc";
+import { type IrcMessage } from "../irc/irc-types";
 import parentIrcSteerTemplate from "../prompts/steering/parent-irc.md" with { type: "text" };
 import ircIncomingTemplate from "../prompts/system/irc-incoming.md" with { type: "text" };
 import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
@@ -246,6 +246,7 @@ export class IrcBridge {
 			details: {
 				id: msg.id,
 				from: msg.from,
+				...(msg.fromLabel ? { fromLabel: msg.fromLabel } : {}),
 				message: msg.body,
 				...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
 				...(msg.wakeRelay ? { wakeRelay: true } : {}),

@@ -3,7 +3,7 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { SelectorController } from "@oh-my-pi/pi-coding-agent/modes/controllers/selector-controller";
 import type { InteractiveModeContext, ShowStatusOptions } from "@oh-my-pi/pi-coding-agent/modes/types";
 import type { SessionEntry } from "@oh-my-pi/pi-coding-agent/session/session-entries";
-import { initTheme } from "@oh-my-pi/pi-tui/theme";
+import { initTheme } from "../../../src/ui/theme/service";
 
 beforeAll(() => {
 	initTheme();
@@ -36,12 +36,15 @@ function harness(draft = "") {
 			getEntry: (id: string) => branch.find(e => e.id === id),
 			getLeafId: () => "a2",
 		},
-		session: { navigateTree },
-		editor: {
-			getText: () => editor.text,
-			get pendingImages() {
-				return [];
-			},
+		session: { navigateTree, abortForRewind: async () => {} },
+		eventController: { resetTranscriptAnchors: () => {} },
+		cancelGoalContinuation: () => {},
+		cancelPendingSubmission: () => false,
+		updatePendingMessagesDisplay: () => {},
+		clearTransientSessionUi: () => {},
+		composer: {
+			text: () => editor.text,
+			pendingImages: [],
 			setDraft: (text: string) => {
 				editor.text = text;
 			},
@@ -50,7 +53,6 @@ function harness(draft = "") {
 				editor.text = "";
 			},
 		},
-		ui: { requestRender: vi.fn() },
 		truncateTranscriptFromMessage: () => false,
 		renderInitialMessages: vi.fn(async () => {}),
 		reloadTodos: vi.fn(async () => {}),
@@ -69,7 +71,7 @@ describe("SelectorController turn actions", () => {
 
 		await h.controller.runTurnAction("retry", { role: "assistant", at: 21 });
 
-		expect(h.navigateTree).toHaveBeenCalledWith("u2", { summarize: false });
+		expect(h.navigateTree).toHaveBeenCalledWith("u2", { summarize: false, requireIdle: true });
 		expect(h.editor.submitted).toEqual(["second prompt"]);
 		expect(h.statuses.map(([message]) => message)).toEqual(["Retrying the turn"]);
 	});
@@ -88,7 +90,7 @@ describe("SelectorController turn actions", () => {
 
 		await h.controller.runTurnAction("edit", { role: "user", at: 10 });
 
-		expect(h.navigateTree).toHaveBeenCalledWith("u1", { summarize: false });
+		expect(h.navigateTree).toHaveBeenCalledWith("u1", { summarize: false, requireIdle: true });
 		expect(h.editor).toMatchObject({ text: "first prompt", submitted: [] });
 		const [message, options] = h.statuses.at(-1)!;
 		expect(message).toBe("Rewound 2 turns");
