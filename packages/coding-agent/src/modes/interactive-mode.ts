@@ -888,7 +888,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		pills.jobsRunning.set(background.size);
 		pills.jobWidgets.set(this.session.getRunningJobWidgets().filter(entry => background.has(entry.id)));
-		this.statusLine.refresh();
+		this.statusLine.refreshJobs();
 	}
 	/** The job widget registry this mode follows, and how to stop listening to it. */
 	#jobWidgetsListener: { registry: JobWidgetRegistry; unsubscribe: () => void } | undefined;
@@ -1700,13 +1700,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				"thinking.set": value => this.#inputController.setThinkingFromComposer(value),
 				"dictation.toggle": () => void this.#toggleComposerDictation(),
 			},
-			rate: () => {
-				if (!showRate()) return undefined;
-				// Session events refresh the facts; the rate meter itself is not reactive.
-				this.statusLine.facts();
-				const rate = this.tokenRate.rate();
-				return rate === null ? undefined : Math.round(rate * 10) / 10;
-			},
+			rate: () => (showRate() ? this.statusLine.composerRate() : undefined),
 		});
 	}
 
@@ -2131,7 +2125,6 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#inputController.enableEnhancedPaste();
 		}
 		this.#bindShellHost();
-		if (!options.suppressWelcomeIntro) this.playWelcomeIntro();
 		pushTerminalTitle();
 		// Claim the terminal title before any session update: this is the one path
 		// that releases the teardown latch, so a late async `setSessionTerminalTitle`
@@ -2139,7 +2132,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		initTerminalTitleState();
 		setTerminalTitleStateEnabled(cfgTuiTitleState.get(this.settings));
 		setTerminalTitleSpinnerStyle(cfgTuiTitleSpinner.get(this.settings));
-		setTerminalTitleSpinnerInterval(cfgMotionResolved.get(this.settings).spinnerInterval);
+		setTerminalTitleSpinnerInterval(cfgMotionResolved.get(this.settings).titleSpinnerInterval);
 		initProgramStatus({ startupRun: options.startupRun });
 		setProgramStatusEnabled(cfgTerminalProgramStatus.get(this.settings));
 		this.#probeProgramStatus();
@@ -2390,6 +2383,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		// other's turn instead of dying.
 		this.composer.setDisableSubmit(false);
 		this.#idleMaintenanceActivity.ready = true;
+		if (!options.suppressWelcomeIntro) this.playWelcomeIntro();
 		this.syncIdleMaintenanceView();
 		// The first alt+p then opens as fast as a reopen.
 		this.#selectorController
@@ -3620,7 +3614,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (any("tui.titleState")) setTerminalTitleStateEnabled(cfgTuiTitleState.get(this.settings));
 		if (any("tui.titleSpinner")) setTerminalTitleSpinnerStyle(cfgTuiTitleSpinner.get(this.settings));
 		if (any("terminal.programStatus")) setProgramStatusEnabled(cfgTerminalProgramStatus.get(this.settings));
-		if (any("motion")) setTerminalTitleSpinnerInterval(next.motion.spinnerInterval);
+		if (any("motion")) setTerminalTitleSpinnerInterval(next.motion.titleSpinnerInterval);
 
 		if (
 			any(
