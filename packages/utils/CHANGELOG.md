@@ -5,6 +5,17 @@
 ### Added
 
 - Added `RequestError.sessionNotFound`: the ACP `-32002` not-found error for a session-scoped request, carrying `data.sessionId`.
+## [19.2.1] - 2026-11-25
+
+### Added
+
+- Added path utilities for checking whether a path exists and whether it is lexically contained within another path without resolving symlinks.
+- Added `errorMessage()` to `@oh-my-pi/pi-utils/type-guards` for retrieving message text from thrown values.
+- Added `Laps` for timing the phases of a multi-step async path as one log record.
+
+### Fixed
+
+- Fixed path containment checks for files and directories whose names begin with `..`.
 
 ## [19.2.0] - 2026-11-25
 

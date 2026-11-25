@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [19.2.1] - 2026-11-25
+
+### Fixed
+
+- Fixed Codex service tiers, such as Ultrafast, being hidden for accounts that support them when the first logged-in account has a plan that does not.
+
 ## [19.2.0] - 2026-11-25
 
 ### Added
