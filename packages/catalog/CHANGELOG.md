@@ -11,6 +11,12 @@
 - Fixed Nebius Token Factory's default model naming `deepseek-ai/DeepSeek-V4-Flash-0731` after the serverless roster retired it, along with the undated `DeepSeek-V4.1-Flash` and `DeepSeek-V4-Pro` ids; the default is now the public `deepseek-ai/DeepSeek-V4.1-Flash-1017` snapshot, which `providers/nebius.kdl` also seeds so the credential-scoped bundle keeps that reference row when the shared catalog drops it
 - Model generation now verifies each credential-scoped provider's `default-model` against its live roster when credentials are available, so a retired default fails the regeneration instead of staying silently bundled
 - Fixed Gemini 4 Argon, Carbon and Hydrogen on the Gemini API and Vertex AI stopping long answers at 32,768 or 65,536 output tokens, often before any visible text; they now allow up to 262,144, so long answers continue past the first segment ([#19081](https://github.com/can1357/oh-my-pi/pull/19081) by [@eggpeat](https://github.com/eggpeat)).
+- Added `xai-oauth/grok-voice-transcribe-2.0` (SuperGrok speech-to-text on `api.x.ai/v1/stt`, through the new `xai-stt` runner API) ([#19184](https://github.com/can1357/oh-my-pi/pull/19184) by [@Xytronix](https://github.com/Xytronix))
+
+### Changed
+
+- Seeded models now survive their provider's model exclusions ([#19184](https://github.com/can1357/oh-my-pi/pull/19184) by [@Xytronix](https://github.com/Xytronix))
+
 ## [19.2.1] - 2026-11-25
 
 ### Fixed
